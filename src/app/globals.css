@@ -74,9 +74,47 @@ body {
   }
 }
 
+@keyframes tooltip-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .animate-fade-in {
   opacity: 0;
   animation: fade-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Arabic font styling */
+.font-arabic {
+  font-family: var(--font-amiri), "Amiri", "Traditional Arabic", serif;
+  font-feature-settings: "liga" 1;
+  line-height: 2.2;
+}
+
+/* Tooltip animation */
+[class*="z-50"] > div:last-child {
+  animation: tooltip-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animation-delay-100 {

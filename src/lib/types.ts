@@ -16,6 +16,8 @@ export interface PairedVerse {
   arabic: string;
   english: string;
   similarity: number;
+  context_summary?: string;
+  theme?: string;
 }
 
 // Retrieval result from Supabase
@@ -39,9 +41,16 @@ export interface ChatResponse {
   uncertainty: string | null;
 }
 
+// Conversation message for multi-turn chat
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 // API request body
 export interface ChatRequest {
   message: string;
+  history?: ConversationMessage[];
   conversationId?: string;
 }
 

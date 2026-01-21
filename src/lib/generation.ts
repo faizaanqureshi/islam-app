@@ -3,7 +3,7 @@
  */
 
 import OpenAI from "openai";
-import type { ChatResponse, PairedVerse } from "./types";
+import type { ChatResponse, PairedVerse, ConversationMessage } from "./types";
 import { formatContextForPrompt } from "./retrieval";
 import {
   parseCitations,
@@ -33,9 +33,16 @@ CRITICAL RULES:
 1. You MUST base your answer ONLY on the provided Quran verses below.
 2. Every claim or statement MUST have a citation in the format (surah:ayah), e.g., (2:153).
 3. Every paragraph of your answer MUST contain at least one citation.
-4. If the provided verses are insufficient to answer the question, say "I cannot fully answer this question based on the verses provided" and suggest what additional context might help.
+4. If the provided verses don't fully cover a topic, do your best with what's available. You may briefly note "The provided verses focus on [X aspect]" but do NOT ask the user to provide more verses or context - they cannot do so.
 5. Do NOT use hadith, tafsir, scholarly opinions, or any external sources.
 6. Be respectful, humble, and focused on what Allah says in the Quran.
+7. NEVER ask the user to "share more verses" or "provide additional context" - the system retrieves verses automatically.
+
+CONVERSATION CONTEXT:
+- You may have previous conversation messages for context.
+- When answering follow-up questions, maintain consistency with your previous responses.
+- If the user refers to something from earlier in the conversation, use that context appropriately.
+- Always ground your current answer in the newly provided Quran verses.
 
 RESPONSE FORMAT:
 Provide your response as valid JSON with this exact structure:
@@ -76,7 +83,8 @@ Only output the JSON object, nothing else.`;
  */
 export async function generateAnswer(
   question: string,
-  context: PairedVerse[]
+  context: PairedVerse[],
+  history: ConversationMessage[] = []
 ): Promise<ChatResponse> {
   const client = getOpenAIClient();
   const formattedContext = formatContextForPrompt(context);
@@ -88,12 +96,16 @@ ${formattedContext}
 
 Based ONLY on these verses, provide a helpful answer with proper citations.`;
 
+  // Build messages array: system -> history -> current question with context
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: GENERATION_SYSTEM_PROMPT },
+    ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
+    { role: "user", content: userMessage },
+  ];
+
   const response = await client.chat.completions.create({
     model: "gpt-5.2",
-    messages: [
-      { role: "system", content: GENERATION_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
+    messages,
     temperature: 0.3,
     max_completion_tokens: 2000,
   });
@@ -217,7 +229,8 @@ function parseJsonResponse(
  */
 export async function generateVerifiedAnswer(
   question: string,
-  context: PairedVerse[]
+  context: PairedVerse[],
+  history: ConversationMessage[] = []
 ): Promise<ChatResponse> {
   // Handle empty context
   if (context.length === 0) {
@@ -229,18 +242,25 @@ export async function generateVerifiedAnswer(
     };
   }
 
-  // Step 1: Generate initial answer
-  const draftAnswer = await generateAnswer(question, context);
+  // Step 1: Generate initial answer with conversation history
+  const draftAnswer = await generateAnswer(question, context, history);
 
   // Step 2: Check if all paragraphs have citations
   const paragraphs = splitIntoParagraphs(draftAnswer.answer_markdown);
   const allParagraphsHaveCitations = paragraphs.every(paragraphHasCitation);
 
   // Step 3: If citations are missing or there's uncertainty, run verification
+  let finalAnswer: ChatResponse;
   if (!allParagraphsHaveCitations || draftAnswer.citations.length === 0) {
-    return await verifyAnswer(draftAnswer, context);
+    finalAnswer = await verifyAnswer(draftAnswer, context);
+  } else {
+    finalAnswer = draftAnswer;
   }
 
-  // Otherwise, the draft is good
-  return draftAnswer;
+  // Step 4: Add explorer prompt at the end if there are citations
+  if (finalAnswer.citations.length > 0) {
+    finalAnswer.answer_markdown = finalAnswer.answer_markdown.trimEnd() + '\n\n---\n\n**View these verses in context** in the Ayah Explorer tab above.';
+  }
+
+  return finalAnswer;
 }

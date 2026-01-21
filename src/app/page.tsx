@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 
 // Types for the chat
 interface Citation {
@@ -28,11 +29,23 @@ interface ChatMessage {
 }
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<"questions" | "explorer">("questions");
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Check if there's a verse deep-link and switch to explorer tab
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const surahParam = params.get('surah');
+    const ayahParam = params.get('ayah');
+
+    if (surahParam && ayahParam) {
+      setActiveTab("explorer");
+    }
+  }, []);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -70,13 +83,22 @@ export default function Home() {
     }
 
     try {
+      // Build conversation history from previous messages (last 10 exchanges max)
+      const history = messages
+        .filter((msg) => msg.content && !msg.isLoading)
+        .slice(-20)
+        .map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ message: trimmedQuery }),
+        body: JSON.stringify({ message: trimmedQuery, history }),
       });
 
       if (!response.ok) {
@@ -172,8 +194,43 @@ export default function Home() {
 
   return (
     <div className="flex min-h-svh flex-col">
+      {/* Tabs - always show */}
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-xl">
+        <div className="mx-auto max-w-3xl px-4">
+          <div className="flex items-center gap-8 h-14 relative">
+            <button
+              onClick={() => setActiveTab("questions")}
+              className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
+                activeTab === "questions"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground/70"
+              }`}
+            >
+              Ask Questions
+              {activeTab === "questions" && (
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("explorer")}
+              className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
+                activeTab === "explorer"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground/70"
+              }`}
+            >
+              Ayah Explorer
+              {activeTab === "explorer" && (
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
+              )}
+            </button>
+          </div>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-border/30" />
+      </div>
+
       {/* Header - only show when in chat mode */}
-      {!isLandingMode && (
+      {!isLandingMode && activeTab === "questions" && (
         <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
           <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
             <button
@@ -212,12 +269,15 @@ export default function Home() {
       {/* Main content area */}
       <main
         className={`flex-1 ${
-          isLandingMode
+          isLandingMode && activeTab === "questions"
             ? "flex items-center justify-center"
             : "pb-32"
         }`}
       >
-        {isLandingMode ? (
+        {activeTab === "explorer" ? (
+          // Ayah Explorer view
+          <AyahExplorer />
+        ) : isLandingMode ? (
           // Landing mode - centered content
           <div className="flex w-full max-w-2xl flex-col items-center gap-8 px-6">
             {/* Logo / Title */}
@@ -278,7 +338,7 @@ export default function Home() {
                       }
                     }}
                   />
-                  <div className="absolute right-3 bottom-3">
+                  <div className="absolute right-3 inset-y-0 flex items-center">
                     <button
                       type="button"
                       disabled={!query.trim() || isLoading}
@@ -324,7 +384,7 @@ export default function Home() {
       </main>
 
       {/* Fixed input at bottom - only show in chat mode */}
-      {!isLandingMode && (
+      {!isLandingMode && activeTab === "questions" && (
         <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl">
           <div className="mx-auto max-w-3xl px-4 py-4">
             <div className="relative">
@@ -348,7 +408,7 @@ export default function Home() {
                   }
                 }}
               />
-              <div className="absolute right-2 bottom-2">
+              <div className="absolute right-2 inset-y-0 flex items-center">
                 <button
                   type="button"
                   disabled={!query.trim() || isLoading}
@@ -397,7 +457,7 @@ export default function Home() {
       )}
 
       {/* Footer - only in landing mode */}
-      {isLandingMode && (
+      {isLandingMode && activeTab === "questions" && (
         <footer className="fixed bottom-0 left-0 right-0 py-6 text-center">
           <p className="text-[12px] text-muted-foreground/40 tracking-wide">
             Answers are AI-generated. Always verify with a scholar.
@@ -439,7 +499,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             <>
               {/* Main answer */}
               <div className="prose prose-sm dark:prose-invert max-w-none">
-                <MarkdownRenderer content={message.content} />
+                <MarkdownRenderer content={message.content} context={message.context} />
               </div>
 
               {/* Uncertainty notice */}
@@ -494,47 +554,97 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 }
 
 // Simple markdown renderer (handles basic formatting)
-function MarkdownRenderer({ content }: { content: string }) {
-  // Split into paragraphs and render
-  const paragraphs = content.split(/\n\n+/);
+function MarkdownRenderer({ content, context }: { content: string; context?: PairedVerse[] }) {
+  // Normalize line endings and split into paragraphs
+  const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Split by double newlines, but also handle single newlines before numbered/bullet lists
+  const paragraphs = normalizedContent
+    .split(/\n\n+/)
+    .flatMap(p => {
+      // If paragraph contains a header followed by list items, split them
+      const headerMatch = p.match(/^(.+?)\n(\d+[.)]\s.+)/s);
+      if (headerMatch && !headerMatch[1].match(/^\d+[.)]\s/)) {
+        return [headerMatch[1], headerMatch[2]];
+      }
+      return [p];
+    });
 
   return (
     <>
       {paragraphs.map((paragraph, i) => {
-        // Handle headers
-        if (paragraph.startsWith("### ")) {
+        const trimmed = paragraph.trim();
+        if (!trimmed) return null;
+
+        // Handle markdown headers
+        if (trimmed.startsWith("### ")) {
           return (
             <h3 key={i} className="text-base font-semibold mt-4 mb-2">
-              {paragraph.slice(4)}
+              <InlineFormatting text={trimmed.slice(4)} context={context} />
             </h3>
           );
         }
-        if (paragraph.startsWith("## ")) {
+        if (trimmed.startsWith("## ")) {
           return (
             <h2 key={i} className="text-lg font-semibold mt-4 mb-2">
-              {paragraph.slice(3)}
+              <InlineFormatting text={trimmed.slice(3)} context={context} />
             </h2>
           );
         }
-
-        // Handle lists
-        if (paragraph.match(/^[-*•]\s/m)) {
-          const items = paragraph.split(/\n/).filter((line) => line.trim());
+        if (trimmed.startsWith("# ")) {
           return (
-            <ul key={i} className="list-disc list-inside space-y-1 my-2">
-              {items.map((item, j) => (
-                <li key={j} className="text-[15px] leading-relaxed">
-                  {item.replace(/^[-*•]\s*/, "")}
-                </li>
-              ))}
-            </ul>
+            <h1 key={i} className="text-xl font-semibold mt-4 mb-2">
+              <InlineFormatting text={trimmed.slice(2)} context={context} />
+            </h1>
           );
+        }
+
+        // Handle numbered lists (1), 2), 1., 2., etc.)
+        if (trimmed.match(/^\d+[.)]\s/m)) {
+          // Split by newlines and also by pattern like "1) " at start of segments
+          const items = trimmed
+            .split(/\n/)
+            .filter((line) => line.trim())
+            .flatMap(line => {
+              // Check if line contains multiple numbered items
+              const multiMatch = line.match(/^(\d+[.)]\s.+?)(?=\s+\d+[.)]\s|$)/g);
+              return multiMatch && multiMatch.length > 1 ? multiMatch : [line];
+            })
+            .filter(line => line.match(/^\d+[.)]\s/));
+          
+          if (items.length > 0) {
+            return (
+              <ol key={i} className="list-none space-y-4 my-4">
+                {items.map((item, j) => (
+                  <li key={j} className="text-[15px] leading-relaxed">
+                    <InlineFormatting text={item.replace(/^\d+[.)]\s*/, "")} context={context} />
+                  </li>
+                ))}
+              </ol>
+            );
+          }
+        }
+
+        // Handle bullet lists
+        if (trimmed.match(/^[-*•]\s/m)) {
+          const items = trimmed.split(/\n/).filter((line) => line.trim() && line.match(/^[-*•]\s/));
+          if (items.length > 0) {
+            return (
+              <ul key={i} className="list-disc list-inside space-y-1 my-2">
+                {items.map((item, j) => (
+                  <li key={j} className="text-[15px] leading-relaxed">
+                    <InlineFormatting text={item.replace(/^[-*•]\s*/, "")} context={context} />
+                  </li>
+                ))}
+              </ul>
+            );
+          }
         }
 
         // Regular paragraph with inline formatting
         return (
-          <p key={i} className="text-[15px] leading-relaxed my-2">
-            <InlineFormatting text={paragraph} />
+          <p key={i} className="text-[15px] leading-relaxed my-3">
+            <InlineFormatting text={trimmed} context={context} />
           </p>
         );
       })}
@@ -542,35 +652,308 @@ function MarkdownRenderer({ content }: { content: string }) {
   );
 }
 
-// Inline formatting (bold, citations)
-function InlineFormatting({ text }: { text: string }) {
-  // Combined pattern for both bold and citations
-  // Citations: (2:153), (16:127; 70:5), (4:11), (4:12)
-  // Bold: **text**
-  const tokenPattern = /(\*\*[^*]+\*\*|\(\d+:\d+(?:[;,]\s*\d+:\d+)*\))/g;
+// Inline formatting (bold, citations with hover tooltips)
+function InlineFormatting({ text, context }: { text: string; context?: PairedVerse[] }) {
+  // Combined pattern for bold and citations
+  // Bold: **text** (allowing asterisks inside by using lazy match)
+  // Citations: (2:153), (16:127; 70:5), (4:11, 4:12)
+  const tokenPattern = /(\*\*.+?\*\*|\(\d+:\d+(?:[;,]\s*\d+:\d+)*\))/g;
   const parts = text.split(tokenPattern).filter(Boolean);
+
+  // Helper to find verse in context
+  const findVerse = (surah: number, ayah: number): PairedVerse | undefined => {
+    return context?.find((v) => v.surah === surah && v.ayah === ayah);
+  };
+
+  // Parse citations from a citation string like "(2:153)" or "(16:127; 70:5)"
+  const parseCitationString = (citationStr: string): Array<{ surah: number; ayah: number }> => {
+    const refs: Array<{ surah: number; ayah: number }> = [];
+    const matches = citationStr.matchAll(/(\d+):(\d+)/g);
+    for (const match of matches) {
+      refs.push({ surah: parseInt(match[1]), ayah: parseInt(match[2]) });
+    }
+    return refs;
+  };
 
   return (
     <>
       {parts.map((part, i) => {
         // Check if it's a citation
         if (/^\(\d+:\d+(?:[;,]\s*\d+:\d+)*\)$/.test(part)) {
+          const refs = parseCitationString(part);
+          const verses = refs.map((r) => findVerse(r.surah, r.ayah)).filter(Boolean) as PairedVerse[];
+
+          // Always render citation badge, even if verse not in context
           return (
-            <span
-              key={i}
-              className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded bg-foreground/[0.04] dark:bg-foreground/[0.08] font-mono text-xs text-muted-foreground"
-            >
-              {part}
-            </span>
+            <CitationWithTooltip key={i} citation={part} verses={verses} />
           );
         }
-        // Check if it's bold text
+        // Check if it's bold text - use semibold for subtler emphasis
         if (part.startsWith("**") && part.endsWith("**")) {
-          return <strong key={i}>{part.slice(2, -2)}</strong>;
+          return <span key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</span>;
         }
         // Regular text
         return <span key={i}>{part}</span>;
       })}
+    </>
+  );
+}
+
+// Citation with elegant hover tooltip with context
+function CitationWithTooltip({ citation, verses }: { citation: string; verses: PairedVerse[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState<"above" | "below">("below");
+  const [contextData, setContextData] = useState<Record<string, VerseContext | null>>({});
+  const [loadingContext, setLoadingContext] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const containerRef = useRef<HTMLSpanElement>(null);
+
+  // Detect mobile on mount
+  useEffect(() => {
+    setMounted(true);
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Fetch context data
+  const fetchContext = async () => {
+    if (verses.length > 0 && Object.keys(contextData).length === 0) {
+      setLoadingContext(true);
+      const contexts: Record<string, VerseContext | null> = {};
+
+      await Promise.all(
+        verses.map(async (verse) => {
+          const key = `${verse.surah}:${verse.ayah}`;
+          try {
+            const res = await fetch(`/api/quran/context?surah=${verse.surah}&ayah=${verse.ayah}`);
+            if (res.ok) {
+              const data = await res.json();
+              contexts[key] = data.success && data.data ? data.data : null;
+            } else {
+              contexts[key] = null;
+            }
+          } catch {
+            contexts[key] = null;
+          }
+        })
+      );
+
+      setContextData(contexts);
+      setLoadingContext(false);
+    }
+  };
+
+  // Desktop hover handler
+  const handleMouseEnter = async () => {
+    if (isMobile) return;
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setPosition(spaceBelow < 300 ? "above" : "below");
+    }
+    setIsOpen(true);
+    fetchContext();
+  };
+
+  // Mobile tap handler
+  const handleClick = (e: React.MouseEvent) => {
+    if (!isMobile || verses.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsOpen(true);
+    fetchContext();
+  };
+
+  // Prevent body scroll when modal is open on mobile
+  useEffect(() => {
+    if (isMobile && isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = 'unset'; };
+    }
+  }, [isMobile, isOpen]);
+
+  // Tooltip/Modal content
+  const renderContent = () => (
+    <>
+      {verses.map((verse, idx) => {
+        const key = `${verse.surah}:${verse.ayah}`;
+        const context = contextData[key];
+
+        return (
+          <div
+            key={idx}
+            className={`p-4 ${idx > 0 ? "border-t border-zinc-700/30" : ""}`}
+          >
+            {/* Verse reference with theme */}
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                  Surah {verse.surah}, Ayah {verse.ayah}
+                </span>
+                {context?.theme && (
+                  <>
+                    <span className="text-zinc-600 hidden sm:inline">•</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/50 text-zinc-400">
+                      {context.theme}
+                    </span>
+                  </>
+                )}
+              </div>
+              <span className="text-[10px] text-zinc-600">
+                {(verse.similarity * 100).toFixed(0)}% match
+              </span>
+            </div>
+
+            {/* Arabic text */}
+            {verse.arabic && (
+              <p
+                className="text-lg sm:text-xl leading-loose text-zinc-100 mb-3 font-arabic text-right"
+                dir="rtl"
+              >
+                {verse.arabic}
+              </p>
+            )}
+
+            {/* English translation */}
+            <p className="text-sm leading-relaxed text-zinc-400 mb-3">
+              {verse.english}
+            </p>
+
+            {/* Context information */}
+            {loadingContext && !context && (
+              <div className="text-xs text-zinc-500 italic">
+                Loading context...
+              </div>
+            )}
+
+            {context && (
+              <div className="mt-3 pt-3 border-t border-zinc-700/30 space-y-2">
+                {context.context_summary && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                      Context
+                    </div>
+                    <p className="text-xs leading-relaxed text-zinc-400">
+                      {context.context_summary}
+                    </p>
+                  </div>
+                )}
+
+                {context.asbab_summary && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                      Occasion
+                    </div>
+                    <p className="text-xs leading-relaxed text-zinc-400">
+                      {context.asbab_summary}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+
+  return (
+    <>
+      <span 
+        ref={containerRef}
+        className="relative inline-block"
+        onMouseEnter={verses.length > 0 && !isMobile ? handleMouseEnter : undefined}
+        onMouseLeave={verses.length > 0 && !isMobile ? () => setIsOpen(false) : undefined}
+      >
+        <span
+          ref={triggerRef}
+          onClick={handleClick}
+          className={`inline-flex items-center px-1 py-0.5 mx-0.5 rounded bg-foreground/[0.04] dark:bg-foreground/[0.08] font-mono text-xs text-muted-foreground transition-colors ${
+            verses.length > 0
+              ? "cursor-help hover:bg-foreground/[0.08] dark:hover:bg-foreground/[0.12]"
+              : "cursor-default"
+          }`}
+          title={verses.length === 0 ? "Verse preview not available" : undefined}
+        >
+          {citation}
+        </span>
+
+        {/* Desktop Tooltip */}
+        {!isMobile && isOpen && verses.length > 0 && (
+          <div
+            className={`absolute z-50 w-[420px] max-w-[calc(100vw-2rem)] ${
+              position === "above" ? "bottom-full mb-2" : "top-full mt-2"
+            } left-1/2 -translate-x-1/2`}
+          >
+            {/* Arrow */}
+            <div
+              className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-zinc-900 dark:bg-zinc-800 border-zinc-700/50 ${
+                position === "above"
+                  ? "bottom-[-6px] border-r border-b"
+                  : "top-[-6px] border-l border-t"
+              }`}
+            />
+
+            {/* Content */}
+            <div className="relative bg-zinc-900 dark:bg-zinc-800 border border-zinc-700/50 rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in max-h-[70vh] overflow-y-auto">
+              {renderContent()}
+            </div>
+          </div>
+        )}
+      </span>
+
+      {/* Mobile Modal */}
+      {mounted && isMobile && isOpen && verses.length > 0 && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm animate-fade-in"
+          onClick={() => setIsOpen(false)}
+          style={{ display: 'flex', alignItems: 'flex-end' }}
+        >
+          <div
+            className="w-full max-h-[85vh] bg-zinc-900 border-t border-zinc-700/50 rounded-t-2xl shadow-2xl overflow-hidden animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Handle bar */}
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 rounded-full bg-zinc-700" />
+            </div>
+
+            {/* Close button */}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="absolute top-3 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 hover:bg-zinc-700 transition-colors"
+            >
+              <svg
+                className="w-4 h-4 text-zinc-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+
+            {/* Citation header */}
+            <div className="px-4 pb-2 border-b border-zinc-800">
+              <span className="text-sm font-mono text-zinc-400">{citation}</span>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-80px)]">
+              {renderContent()}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }
@@ -631,4 +1014,500 @@ function ContextExpander({ context }: { context: PairedVerse[] }) {
       )}
     </div>
   );
+}
+
+// Ayah Explorer Component
+interface Surah {
+  number: number;
+  name: string;
+  transliteration: string;
+  verses: number;
+}
+
+interface Verse {
+  ayah: number;
+  arabic: string;
+  english: string;
+}
+
+interface VerseContext {
+  theme: string | null;
+  context_summary: string;
+  asbab_summary: string | null;
+  scholarly_notes: string | null;
+}
+
+interface VerseModalProps {
+  verse: {
+    surah: number;
+    ayah: number;
+    arabic: string;
+    english: string;
+  };
+  onClose: () => void;
+}
+
+function AyahExplorer() {
+  const [surahs, setSurahs] = useState<Surah[]>([]);
+  const [selectedSurah, setSelectedSurah] = useState(1);
+  const [verses, setVerses] = useState<Verse[]>([]);
+  const [isLoadingSurahs, setIsLoadingSurahs] = useState(true);
+  const [isLoadingVerses, setIsLoadingVerses] = useState(true);
+  const [selectedVerse, setSelectedVerse] = useState<{
+    surah: number;
+    ayah: number;
+    arabic: string;
+    english: string;
+  } | null>(null);
+  const [urlKey, setUrlKey] = useState(0); // Track URL changes
+
+  // Listen for URL changes (popstate for back/forward, and manual checks)
+  useEffect(() => {
+    const handleUrlChange = () => {
+      setUrlKey(prev => prev + 1);
+    };
+
+    // Listen to browser back/forward
+    window.addEventListener('popstate', handleUrlChange);
+
+    // Check URL periodically for manual changes (as a fallback)
+    const interval = setInterval(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('surah') || params.get('ayah')) {
+        handleUrlChange();
+      }
+    }, 500);
+
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Check URL params for deep-linked verse
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const surahParam = params.get('surah');
+    const ayahParam = params.get('ayah');
+
+    if (surahParam && ayahParam && verses.length > 0 && !isLoadingVerses) {
+      const surah = parseInt(surahParam);
+      const ayah = parseInt(ayahParam);
+
+      if (!isNaN(surah) && !isNaN(ayah)) {
+        // Update selected surah if different
+        if (surah !== selectedSurah) {
+          setSelectedSurah(surah);
+          return; // Wait for verses to reload
+        }
+
+        const verse = verses.find(v => v.ayah === ayah);
+        if (verse) {
+          setSelectedVerse({
+            surah,
+            ayah,
+            arabic: verse.arabic,
+            english: verse.english,
+          });
+        }
+      }
+    }
+  }, [verses, isLoadingVerses, urlKey, selectedSurah]);
+
+  // Fetch surahs list on mount
+  useEffect(() => {
+    async function fetchSurahs() {
+      try {
+        const response = await fetch("/api/quran/surahs");
+        const data = await response.json();
+        if (data.success) {
+          setSurahs(data.data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch surahs:", error);
+      } finally {
+        setIsLoadingSurahs(false);
+      }
+    }
+    fetchSurahs();
+  }, []);
+
+  // Fetch verses when surah changes
+  useEffect(() => {
+    async function fetchVerses() {
+      setIsLoadingVerses(true);
+      try {
+        const response = await fetch(`/api/quran/surah/${selectedSurah}`);
+        const data = await response.json();
+        if (data.success) {
+          setVerses(data.data.verses);
+        }
+      } catch (error) {
+        console.error("Failed to fetch verses:", error);
+      } finally {
+        setIsLoadingVerses(false);
+      }
+    }
+    fetchVerses();
+  }, [selectedSurah]);
+
+  const currentSurah = surahs.find((s) => s.number === selectedSurah);
+
+  return (
+    <>
+      <div className="min-h-[calc(100vh-3.5rem)] bg-background">
+        <div className="mx-auto max-w-4xl px-4 py-8">
+        {/* Surah Selector */}
+        <div className="mb-8 animate-fade-in">
+          <label className="block text-[11px] uppercase tracking-wider text-muted-foreground/60 mb-3 font-medium">
+            Select Surah
+          </label>
+          <select
+            value={selectedSurah}
+            onChange={(e) => setSelectedSurah(Number(e.target.value))}
+            className="w-full max-w-md px-4 py-3 rounded-xl border border-border/80 bg-background text-[15px] text-foreground transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none"
+          >
+            {surahs.map((surah) => (
+              <option key={surah.number} value={surah.number}>
+                {surah.number}. {surah.name} ({surah.transliteration}) - {surah.verses} verses
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Surah Header */}
+        {currentSurah && !isLoadingVerses && (
+          <div className="mb-8 text-center animate-fade-in">
+            <h1 className="text-3xl font-semibold text-foreground mb-2">
+              {currentSurah.name}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {currentSurah.transliteration}
+            </p>
+            <div className="mt-4 w-16 h-[1px] bg-border/50 mx-auto" />
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoadingVerses && (
+          <div className="flex items-center justify-center py-20">
+            <div className="flex gap-1">
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+          </div>
+        )}
+
+        {/* Verses */}
+        {!isLoadingVerses && (
+          <div className="space-y-8 animate-fade-in">
+            {verses.map((verse) => (
+              <div key={verse.ayah} className="group relative" data-ayah={verse.ayah}>
+                {/* Ayah Number Badge */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-foreground/[0.04] dark:bg-foreground/[0.06] border border-border/50">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {verse.ayah}
+                    </span>
+                  </div>
+                  <div className="flex-1 h-[1px] bg-border/30" />
+                </div>
+
+                {/* Clickable verse content */}
+                <div
+                  className="cursor-pointer transition-all duration-200 hover:opacity-70"
+                  onClick={() =>
+                    setSelectedVerse({
+                      surah: selectedSurah,
+                      ayah: verse.ayah,
+                      arabic: verse.arabic,
+                      english: verse.english,
+                    })
+                  }
+                >
+                  {/* Arabic Text */}
+                  {verse.arabic && (
+                    <p
+                      className="text-right font-arabic text-2xl leading-loose text-foreground mb-6"
+                      dir="rtl"
+                    >
+                      {verse.arabic}
+                    </p>
+                  )}
+
+                  {/* English Translation */}
+                  <p className="text-[15px] leading-relaxed text-muted-foreground">
+                    {verse.english}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        </div>
+      </div>
+
+      {/* Verse Detail Modal - Outside container for proper centering */}
+      {selectedVerse && (
+        <VerseModal
+          verse={selectedVerse}
+          onClose={() => {
+            setSelectedVerse(null);
+            // Clear URL parameters when closing modal
+            const url = new URL(window.location.href);
+            url.searchParams.delete('surah');
+            url.searchParams.delete('ayah');
+            window.history.replaceState({}, '', url.toString());
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// Verse Detail Modal Component
+function VerseModal({ verse, onClose }: VerseModalProps) {
+  const [context, setContext] = useState<VerseContext | null>(null);
+  const [city, setCity] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Copy share link to clipboard
+  const copyShareLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}?surah=${verse.surah}&ayah=${verse.ayah}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  useEffect(() => {
+    async function fetchVerseDetails() {
+      setIsLoading(true);
+      try {
+        // Fetch surah origins
+        const originsRes = await fetch("/surah-origins.json");
+        const origins = await originsRes.json();
+        setCity(origins[verse.surah] || "");
+
+        // Try to get context from verse_context table via API
+        const ctxRes = await fetch(
+          `/api/quran/context?surah=${verse.surah}&ayah=${verse.ayah}`
+        );
+        if (ctxRes.ok) {
+          const ctxData = await ctxRes.json();
+          if (ctxData.success && ctxData.data) {
+            setContext(ctxData.data);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch verse details:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchVerseDetails();
+  }, [verse.surah, verse.ayah]);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, []);
+
+  if (!mounted) return null;
+
+  const modalContent = (
+    <div
+      className="fixed top-0 left-0 w-screen h-screen z-[9999] bg-background/80 backdrop-blur-sm animate-fade-in"
+      onClick={onClose}
+      style={{
+        display: 'grid',
+        placeItems: 'center',
+        margin: 0,
+        padding: '1rem'
+      }}
+    >
+      <div
+        className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-background border border-border/50 rounded-2xl shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header buttons */}
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+          {/* Copy link button */}
+          <button
+            onClick={copyShareLink}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-foreground/[0.06] transition-colors"
+            title="Copy share link"
+          >
+            {copied ? (
+              <svg
+                className="w-4 h-4 text-green-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            )}
+          </button>
+
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-foreground/[0.06] transition-colors"
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-8">
+          {/* Header */}
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
+              <span className="text-sm font-medium text-muted-foreground">
+                Surah {verse.surah}:{verse.ayah}
+              </span>
+              {city && (
+                <>
+                  <span className="text-muted-foreground/30">•</span>
+                  <span className="text-sm text-muted-foreground capitalize">
+                    {city}
+                  </span>
+                </>
+              )}
+              {context?.theme && (
+                <>
+                  <span className="text-muted-foreground/30">•</span>
+                  <span className="text-xs px-2 py-1 rounded-md bg-foreground/[0.04] dark:bg-foreground/[0.06] text-muted-foreground">
+                    {context.theme}
+                  </span>
+                </>
+              )}
+            </div>
+            <div className="h-[1px] bg-border/30" />
+          </div>
+
+          {/* Arabic Text */}
+          <p
+            className="text-right font-arabic text-3xl leading-loose text-foreground mb-8"
+            dir="rtl"
+          >
+            {verse.arabic}
+          </p>
+
+          {/* English Translation */}
+          <p className="text-base leading-relaxed text-muted-foreground mb-8">
+            {verse.english}
+          </p>
+
+          {/* Context Section */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          ) : context ? (
+            <div className="space-y-6">
+              <div className="h-[1px] bg-border/30" />
+
+              {/* Context Summary */}
+              {context.context_summary && (
+                <div>
+                  <h3 className="text-sm font-medium text-foreground mb-3">
+                    Context
+                  </h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {context.context_summary}
+                  </p>
+                </div>
+              )}
+
+              {/* Asbab al-Nuzul */}
+              {context.asbab_summary && (
+                <div>
+                  <h3 className="text-sm font-medium text-foreground mb-3">
+                    Occasion of Revelation
+                  </h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {context.asbab_summary}
+                  </p>
+                </div>
+              )}
+
+              {/* Scholarly Notes (Collapsible) */}
+              {context.scholarly_notes && (
+                <details className="group">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground mb-3 flex items-center gap-2 hover:text-foreground/80 transition-colors">
+                    <svg
+                      className="w-3 h-3 transition-transform group-open:rotate-90"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                    Scholarly Notes
+                  </summary>
+                  <p className="text-sm leading-relaxed text-muted-foreground pl-5">
+                    {context.scholarly_notes}
+                  </p>
+                </details>
+              )}
+            </div>
+          ) : (
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted-foreground/60">
+                No contextual information available for this verse.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(modalContent, document.body);
 }

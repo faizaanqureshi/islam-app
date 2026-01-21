@@ -8,9 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { retrievePairedContext } from "@/lib/retrieval";
+import { retrievePairedContext, rewriteQueryWithContext } from "@/lib/retrieval";
 import { createStreamingResponse } from "@/lib/streaming";
-import type { ChatAPIResponse, ChatRequest } from "@/lib/types";
+import type { ChatAPIResponse, ChatRequest, ConversationMessage } from "@/lib/types";
 
 // Rate limiting placeholder
 const RATE_LIMIT = {
@@ -47,7 +47,7 @@ function validateRequest(
     return { valid: false, error: "Invalid request body" };
   }
 
-  const { message } = body as Record<string, unknown>;
+  const { message, history } = body as Record<string, unknown>;
 
   if (!message || typeof message !== "string") {
     return { valid: false, error: "Message is required and must be a string" };
@@ -61,10 +61,33 @@ function validateRequest(
     return { valid: false, error: "Message must be less than 1000 characters" };
   }
 
+  // Validate and sanitize history if provided
+  let validatedHistory: ConversationMessage[] | undefined;
+  if (history) {
+    if (!Array.isArray(history)) {
+      return { valid: false, error: "History must be an array" };
+    }
+    // Limit history to last 10 messages to prevent token overflow
+    validatedHistory = history
+      .slice(-10)
+      .filter(
+        (msg): msg is ConversationMessage =>
+          typeof msg === "object" &&
+          msg !== null &&
+          (msg.role === "user" || msg.role === "assistant") &&
+          typeof msg.content === "string"
+      )
+      .map((msg) => ({
+        role: msg.role,
+        content: msg.content.slice(0, 2000), // Limit content length
+      }));
+  }
+
   return {
     valid: true,
     data: {
       message: message.trim(),
+      history: validatedHistory,
       conversationId: (body as Record<string, unknown>).conversationId as
         | string
         | undefined,
@@ -109,14 +132,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { message } = validation.data;
+    const { message, history } = validation.data;
 
     // 3. Check if streaming is requested
     const acceptsStream = request.headers.get("accept")?.includes("text/event-stream");
 
-    // 4. Retrieve relevant verses
-    console.log(`[Chat] Processing question: "${message.substring(0, 50)}..."`);
-    const context = await retrievePairedContext(message, 10);
+    // 4. Rewrite query if there's conversation history (for better RAG retrieval)
+    let retrievalQuery = message;
+    if (history && history.length > 0) {
+      retrievalQuery = await rewriteQueryWithContext(message, history);
+      if (retrievalQuery !== message) {
+        console.log(`[Chat] Query rewritten: "${message}" -> "${retrievalQuery}"`);
+      }
+    }
+
+    // 5. Retrieve relevant verses using the (potentially rewritten) query
+    console.log(`[Chat] Processing question: "${message.substring(0, 50)}..." (history: ${history?.length || 0} messages)`);
+    const context = await retrievePairedContext(retrievalQuery, 10);
     console.log(`[Chat] Retrieved ${context.length} paired verses`);
 
     // 5. Handle empty context
@@ -135,8 +167,8 @@ export async function POST(request: NextRequest) {
 
     // 6. Stream or return full response
     if (acceptsStream) {
-      // Return streaming response
-      const stream = createStreamingResponse(message, context);
+      // Return streaming response with conversation history
+      const stream = createStreamingResponse(message, context, history);
 
       return new Response(stream, {
         headers: {
@@ -148,7 +180,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Non-streaming fallback (for testing)
       const { generateVerifiedAnswer } = await import("@/lib/generation");
-      const response = await generateVerifiedAnswer(message, context);
+      const response = await generateVerifiedAnswer(message, context, history);
 
       return NextResponse.json<ChatAPIResponse>({
         success: true,
