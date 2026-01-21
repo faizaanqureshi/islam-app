@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.91.0
+        version: 2.91.0
       next:
         specifier: 16.1.4
         version: 16.1.4(@babel/core@7.28.6)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      openai:
+        specifier: ^4.77.0
+        version: 4.104.0(ws@8.19.0)(zod@4.3.5)
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -18,9 +24,6 @@ importers:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
     devDependencies:
-      '@supabase/supabase-js':
-        specifier: ^2.91.0
-        version: 2.91.0
       '@tailwindcss/postcss':
         specifier: ^4
         version: 4.1.18
@@ -42,9 +45,6 @@ importers:
       eslint-config-next:
         specifier: 16.1.4
         version: 16.1.4(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
-      openai:
-        specifier: ^4.77.0
-        version: 4.104.0(ws@8.19.0)(zod@4.3.5)
       tailwindcss:
         specifier: ^4
         version: 4.1.18
