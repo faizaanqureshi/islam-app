@@ -71,6 +71,39 @@ export async function generateQueryEmbedding(query: string): Promise<number[]> {
 }
 
 /**
+ * Expand short/vague queries into full questions for better semantic search.
+ * Single words or short phrases like "music" become "What does the Quran say about music?"
+ */
+export function expandShortQuery(query: string): string {
+  const trimmed = query.trim();
+  const wordCount = trimmed.split(/\s+/).length;
+  
+  // Check if the query is already a question or detailed enough
+  const isQuestion = /^(what|how|why|when|where|who|which|is|are|does|do|can|should|will|would)\b/i.test(trimmed);
+  const hasQuranMention = /quran|islam|allah|muslim|ayah|surah|verse/i.test(trimmed);
+  
+  // Expand if: short (1-3 words), not a question, and doesn't mention Quran-related terms
+  if (wordCount <= 3 && !isQuestion && !hasQuranMention) {
+    const expanded = `What does the Quran say about ${trimmed.toLowerCase()}?`;
+    console.log(`[Query Expansion] "${trimmed}" -> "${expanded}"`);
+    return expanded;
+  }
+  
+  // Also expand slightly longer queries (4-6 words) that are clearly topic-based, not questions
+  if (wordCount <= 6 && !isQuestion && !trimmed.includes("?")) {
+    // Check if it looks like a topic/phrase rather than a question
+    const looksLikeTopic = /^(the\s+)?(concept|meaning|importance|role|purpose|ruling|view|stance|position|topic)\s+of\b/i.test(trimmed) === false;
+    if (looksLikeTopic && !hasQuranMention) {
+      const expanded = `What does the Quran say about ${trimmed.toLowerCase()}?`;
+      console.log(`[Query Expansion] "${trimmed}" -> "${expanded}"`);
+      return expanded;
+    }
+  }
+  
+  return trimmed;
+}
+
+/**
  * Rewrite a follow-up query to be standalone using conversation history.
  * This helps RAG retrieve relevant verses for questions like "what about men?"
  * by expanding them to "What does the Quran say about men's dress and clothing?"

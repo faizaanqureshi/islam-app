@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { retrievePairedContext, rewriteQueryWithContext } from "@/lib/retrieval";
+import { retrievePairedContext, rewriteQueryWithContext, expandShortQuery } from "@/lib/retrieval";
 import { createStreamingResponse } from "@/lib/streaming";
 import type { ChatAPIResponse, ChatRequest, ConversationMessage } from "@/lib/types";
 
@@ -137,27 +137,64 @@ export async function POST(request: NextRequest) {
     // 3. Check if streaming is requested
     const acceptsStream = request.headers.get("accept")?.includes("text/event-stream");
 
-    // 4. Rewrite query if there's conversation history (for better RAG retrieval)
+    // 4. Expand short queries and rewrite with history context (for better RAG retrieval)
     let retrievalQuery = message;
+    
+    // First, expand short/vague queries like "music" -> "What does the Quran say about music?"
+    retrievalQuery = expandShortQuery(retrievalQuery);
+    
+    // Then, if there's conversation history, rewrite for context
     if (history && history.length > 0) {
-      retrievalQuery = await rewriteQueryWithContext(message, history);
+      retrievalQuery = await rewriteQueryWithContext(retrievalQuery, history);
       if (retrievalQuery !== message) {
-        console.log(`[Chat] Query rewritten: "${message}" -> "${retrievalQuery}"`);
+        console.log(`[Chat] Query rewritten with history: "${message}" -> "${retrievalQuery}"`);
       }
     }
 
-    // 5. Retrieve relevant verses using the (potentially rewritten) query
-    console.log(`[Chat] Processing question: "${message.substring(0, 50)}..." (history: ${history?.length || 0} messages)`);
+    // 5. Retrieve relevant verses using the (potentially expanded/rewritten) query
+    console.log(`[Chat] Processing question: "${message.substring(0, 50)}..." (retrieval query: "${retrievalQuery.substring(0, 50)}...")`);
+    console.log(`[Chat] History: ${history?.length || 0} messages`);
     const context = await retrievePairedContext(retrievalQuery, 10);
     console.log(`[Chat] Retrieved ${context.length} paired verses`);
 
-    // 5. Handle empty context
+    // 5. Handle empty context - still need to respect streaming preference
     if (context.length === 0) {
+      const noContextMessage = "I could not find relevant Quran verses to answer your question. Could you please rephrase or provide more context?";
+      
+      if (acceptsStream) {
+        // Return a streaming response even for empty context so the frontend handles it properly
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            // Send empty context event
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "context", data: [] })}\n\n`)
+            );
+            // Send the message as text
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "text", data: noContextMessage })}\n\n`)
+            );
+            // Send done event
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "done", data: { citations: [], fullContent: noContextMessage } })}\n\n`)
+            );
+            controller.close();
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+          },
+        });
+      }
+
       return NextResponse.json<ChatAPIResponse>({
         success: true,
         data: {
-          answer_markdown:
-            "I could not find relevant Quran verses to answer your question. Could you please rephrase or provide more context?",
+          answer_markdown: noContextMessage,
           citations: [],
           uncertainty: "No relevant verses found.",
         },
