@@ -117,32 +117,77 @@ export default function Home() {
       let streamedContent = "";
       let context: PairedVerse[] = [];
       let citations: Citation[] = [];
+      let buffer = ""; // Buffer for incomplete SSE events
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        // Append new data to buffer
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Process complete SSE events (ending with \n\n)
+        const events = buffer.split("\n\n");
+        // Keep the last potentially incomplete event in the buffer
+        buffer = events.pop() || "";
 
+        for (const eventBlock of events) {
+          const lines = eventBlock.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const event = JSON.parse(line.slice(6));
+
+                if (event.type === "context") {
+                  context = event.data;
+                  // Update with context, stop loading indicator
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === assistantId
+                        ? { ...msg, context, isLoading: false }
+                        : msg
+                    )
+                  );
+                } else if (event.type === "text") {
+                  streamedContent += event.data;
+                  // Update content progressively
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === assistantId
+                        ? { ...msg, content: streamedContent }
+                        : msg
+                    )
+                  );
+                } else if (event.type === "done") {
+                  citations = event.data.citations;
+                  // Final update with citations
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === assistantId
+                        ? { ...msg, citations, isLoading: false }
+                        : msg
+                    )
+                  );
+                } else if (event.type === "error") {
+                  throw new Error(event.data);
+                }
+              } catch {
+                // Ignore JSON parse errors for incomplete chunks
+              }
+            }
+          }
+        }
+      }
+
+      // Process any remaining data in buffer
+      if (buffer.trim()) {
+        const lines = buffer.split("\n");
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const event = JSON.parse(line.slice(6));
-
-              if (event.type === "context") {
-                context = event.data;
-                // Update with context, stop loading indicator
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === assistantId
-                      ? { ...msg, context, isLoading: false }
-                      : msg
-                  )
-                );
-              } else if (event.type === "text") {
+              if (event.type === "text") {
                 streamedContent += event.data;
-                // Update content progressively
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantId
@@ -152,7 +197,6 @@ export default function Home() {
                 );
               } else if (event.type === "done") {
                 citations = event.data.citations;
-                // Final update with citations
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantId
@@ -160,11 +204,9 @@ export default function Home() {
                       : msg
                   )
                 );
-              } else if (event.type === "error") {
-                throw new Error(event.data);
               }
             } catch {
-              // Ignore JSON parse errors for incomplete chunks
+              // Ignore parse errors
             }
           }
         }
@@ -325,7 +367,7 @@ export default function Home() {
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="What does the Quran say about..."
                     rows={1}
-                    className="w-full min-h-[56px] max-h-[200px] resize-none rounded-2xl border border-border/80 bg-background px-5 py-4 pr-14 text-[15px] text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none"
+                    className="w-full min-h-[56px] max-h-[200px] resize-none rounded-2xl border border-border/80 bg-background px-5 py-4 pr-14 text-base text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none"
                     onInput={(e) => {
                       const target = e.target as HTMLTextAreaElement;
                       target.style.height = "auto";
@@ -385,8 +427,8 @@ export default function Home() {
 
       {/* Fixed input at bottom - only show in chat mode */}
       {!isLandingMode && activeTab === "questions" && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl">
-          <div className="mx-auto max-w-3xl px-4 py-4">
+        <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background pb-[env(safe-area-inset-bottom)]">
+          <div className="mx-auto max-w-3xl px-4 py-3">
             <div className="relative">
               <textarea
                 ref={textareaRef}
@@ -395,7 +437,7 @@ export default function Home() {
                 placeholder="Ask a follow-up question..."
                 rows={1}
                 disabled={isLoading}
-                className="w-full min-h-[48px] max-h-[120px] resize-none rounded-xl border border-border/80 bg-background px-4 py-3 pr-12 text-[15px] text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[48px] max-h-[120px] resize-none rounded-xl border border-border/80 bg-background px-4 py-3 pr-12 text-base text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none disabled:opacity-50"
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement;
                   target.style.height = "auto";
@@ -772,8 +814,25 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
   // Prevent body scroll when modal is open on mobile
   useEffect(() => {
     if (isMobile && isOpen) {
+      // Store current scroll position
+      const scrollY = window.scrollY;
+      
+      // Lock body scroll (works on most browsers)
       document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = 'unset'; };
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      
+      return () => {
+        // Restore scroll position
+        document.body.style.overflow = '';
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        window.scrollTo(0, scrollY);
+      };
     }
   }, [isMobile, isOpen]);
 
@@ -787,24 +846,24 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
         return (
           <div
             key={idx}
-            className={`p-4 ${idx > 0 ? "border-t border-zinc-700/30" : ""}`}
+            className={`p-4 ${idx > 0 ? "border-t border-zinc-200 dark:border-zinc-700/30" : ""}`}
           >
             {/* Verse reference with theme */}
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">
                   Surah {verse.surah}, Ayah {verse.ayah}
                 </span>
                 {context?.theme && (
                   <>
-                    <span className="text-zinc-600 hidden sm:inline">•</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/50 text-zinc-400">
+                    <span className="text-zinc-400 dark:text-zinc-600 hidden sm:inline">•</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400">
                       {context.theme}
                     </span>
                   </>
                 )}
               </div>
-              <span className="text-[10px] text-zinc-600">
+              <span className="text-[10px] text-zinc-400 dark:text-zinc-600">
                 {(verse.similarity * 100).toFixed(0)}% match
               </span>
             </div>
@@ -812,7 +871,7 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
             {/* Arabic text */}
             {verse.arabic && (
               <p
-                className="text-lg sm:text-xl leading-loose text-zinc-100 mb-3 font-arabic text-right"
+                className="text-lg sm:text-xl leading-loose text-zinc-900 dark:text-zinc-100 mb-3 font-arabic text-right"
                 dir="rtl"
               >
                 {verse.arabic}
@@ -820,7 +879,7 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
             )}
 
             {/* English translation */}
-            <p className="text-sm leading-relaxed text-zinc-400 mb-3">
+            <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 mb-3">
               {verse.english}
             </p>
 
@@ -832,13 +891,13 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
             )}
 
             {context && (
-              <div className="mt-3 pt-3 border-t border-zinc-700/30 space-y-2">
+              <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700/30 space-y-2">
                 {context.context_summary && (
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
                       Context
                     </div>
-                    <p className="text-xs leading-relaxed text-zinc-400">
+                    <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
                       {context.context_summary}
                     </p>
                   </div>
@@ -849,7 +908,7 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
                     <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
                       Occasion
                     </div>
-                    <p className="text-xs leading-relaxed text-zinc-400">
+                    <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
                       {context.asbab_summary}
                     </p>
                   </div>
@@ -892,7 +951,7 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
           >
             {/* Arrow */}
             <div
-              className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-zinc-900 dark:bg-zinc-800 border-zinc-700/50 ${
+              className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700/50 ${
                 position === "above"
                   ? "bottom-[-6px] border-r border-b"
                   : "top-[-6px] border-l border-t"
@@ -900,7 +959,7 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
             />
 
             {/* Content */}
-            <div className="relative bg-zinc-900 dark:bg-zinc-800 border border-zinc-700/50 rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in max-h-[70vh] overflow-y-auto">
+            <div className="relative bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/50 rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in max-h-[70vh] overflow-y-auto">
               {renderContent()}
             </div>
           </div>
@@ -910,45 +969,40 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
       {/* Mobile Modal */}
       {mounted && isMobile && isOpen && verses.length > 0 && createPortal(
         <div
-          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-[9999] bg-black/40 dark:bg-black/60 backdrop-blur-sm animate-fade-in touch-none"
           onClick={() => setIsOpen(false)}
+          onTouchMove={(e) => e.preventDefault()}
           style={{ display: 'flex', alignItems: 'flex-end' }}
         >
           <div
-            className="w-full max-h-[85vh] bg-zinc-900 border-t border-zinc-700/50 rounded-t-2xl shadow-2xl overflow-hidden animate-slide-up"
+            className="relative w-full max-h-[85vh] bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-700/50 rounded-t-2xl shadow-2xl overflow-hidden animate-slide-up touch-auto"
             onClick={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
           >
-            {/* Handle bar */}
-            <div className="flex justify-center py-3">
-              <div className="w-10 h-1 rounded-full bg-zinc-700" />
-            </div>
-
-            {/* Close button */}
-            <button
-              onClick={() => setIsOpen(false)}
-              className="absolute top-3 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800 hover:bg-zinc-700 transition-colors"
-            >
-              <svg
-                className="w-4 h-4 text-zinc-400"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            {/* Header with citation and close button */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
+              <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">{citation}</span>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
               >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-
-            {/* Citation header */}
-            <div className="px-4 pb-2 border-b border-zinc-800">
-              <span className="text-sm font-mono text-zinc-400">{citation}</span>
+                <svg
+                  className="w-4 h-4 text-zinc-500 dark:text-zinc-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             {/* Scrollable content */}
-            <div className="overflow-y-auto max-h-[calc(85vh-80px)]">
+            <div className="overflow-y-auto max-h-[calc(85vh-56px)]">
               {renderContent()}
             </div>
           </div>
