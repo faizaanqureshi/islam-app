@@ -139,7 +139,7 @@ Output: "What does the Quran say about men's dress and clothing?"`,
  */
 export async function searchSimilarVerses(
   embedding: number[],
-  topK: number = CONFIG.topK,
+  topK: number = CONFIG.initialRetrievalK,
   lang: string = "en"
 ): Promise<RetrievalResult[]> {
   const client = getSupabaseClient();
