@@ -712,7 +712,8 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
 
   // Detect mobile on mount
   useEffect(() => {
-    setMounted(true);
+    // Schedule mount state update to avoid synchronous setState in effect
+    queueMicrotask(() => setMounted(true));
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -1051,7 +1052,7 @@ function AyahExplorer() {
   const [surahs, setSurahs] = useState<Surah[]>([]);
   const [selectedSurah, setSelectedSurah] = useState(1);
   const [verses, setVerses] = useState<Verse[]>([]);
-  const [isLoadingSurahs, setIsLoadingSurahs] = useState(true);
+  const [, setIsLoadingSurahs] = useState(true);
   const [isLoadingVerses, setIsLoadingVerses] = useState(true);
   const [selectedVerse, setSelectedVerse] = useState<{
     surah: number;

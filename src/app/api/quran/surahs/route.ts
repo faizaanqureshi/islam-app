@@ -124,6 +124,7 @@ const SURAH_METADATA = [
   { number: 114, name: "An-Nas", transliteration: "Mankind", verses: 6 },
 ];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getSupabaseClient() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

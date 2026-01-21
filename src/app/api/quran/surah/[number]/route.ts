@@ -122,13 +122,10 @@ export async function GET(
   } catch (error) {
     console.error("[Surah] Error:", error);
 
-    const errorMessage =
-      error instanceof Error ? error.message : "An unexpected error occurred";
-
     return NextResponse.json<SurahResponse>(
       {
         success: false,
-        error: "Failed to fetch surah verses",
+        error: error instanceof Error ? error.message : "Failed to fetch surah verses",
       },
       { status: 500 }
     );
