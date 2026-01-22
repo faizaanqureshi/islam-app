@@ -28,6 +28,15 @@ interface ChatMessage {
   isLoading?: boolean;
 }
 
+// Prayer Times Types
+interface PrayerTimes {
+  Fajr: string;
+  Dhuhr: string;
+  Asr: string;
+  Maghrib: string;
+  Isha: string;
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"questions" | "explorer">("questions");
   const [query, setQuery] = useState("");
@@ -238,34 +247,37 @@ export default function Home() {
     <div className="flex min-h-svh flex-col">
       {/* Tabs - always show */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-xl">
-        <div className="mx-auto max-w-3xl px-4">
-          <div className="flex items-center gap-8 h-14 relative">
-            <button
-              onClick={() => setActiveTab("questions")}
-              className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
-                activeTab === "questions"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground/70"
-              }`}
-            >
-              Ask Questions
-              {activeTab === "questions" && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("explorer")}
-              className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
-                activeTab === "explorer"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground/70"
-              }`}
-            >
-              Ayah Explorer
-              {activeTab === "explorer" && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
-              )}
-            </button>
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="flex items-center justify-between h-14 relative">
+            <div className="flex items-center gap-8">
+              <button
+                onClick={() => setActiveTab("questions")}
+                className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
+                  activeTab === "questions"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground/70"
+                }`}
+              >
+                Ask Questions
+                {activeTab === "questions" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab("explorer")}
+                className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
+                  activeTab === "explorer"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground/70"
+                }`}
+              >
+                Ayah Explorer
+                {activeTab === "explorer" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
+                )}
+              </button>
+            </div>
+            <PrayerTimesWidget />
           </div>
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-border/30" />
@@ -1218,6 +1230,418 @@ function ContextExpander({ context }: { context: PairedVerse[] }) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Prayer Times Widget Component
+function PrayerTimesWidget() {
+  const [prayerData, setPrayerData] = useState<{
+    next: {
+      name: string;
+      time: string;
+      timeUntil: string;
+    };
+    allPrayers: Array<{ name: string; time: string; isPast: boolean; isCurrent: boolean }>;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
+
+  // Detect mobile and set mounted state
+  useEffect(() => {
+    setMounted(true);
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Calculate dropdown position when expanded (desktop only)
+  useEffect(() => {
+    if (isExpanded && triggerRef.current && !isMobile) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
+  }, [isExpanded, isMobile]);
+
+  // Format time to 12-hour format, handling formats like "06:22" or "06:22 (PKT)"
+  const formatTime = (time24: string) => {
+    const match = time24.match(/(\d{1,2}):(\d{2})/);
+    if (!match) return time24;
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const period = hours >= 12 ? "PM" : "AM";
+    const hours12 = hours % 12 || 12;
+    return `${hours12}:${minutes.toString().padStart(2, "0")} ${period}`;
+  };
+
+  // Prayer icons
+  const getPrayerIcon = (prayerName: string) => {
+    const sizeClass = "w-3.5 h-3.5";
+    switch (prayerName) {
+      case "Fajr":
+        return (
+          <svg className={sizeClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 10V2" />
+            <path d="m4.93 10.93 1.41 1.41" />
+            <path d="M2 18h2" />
+            <path d="M20 18h2" />
+            <path d="m19.07 10.93-1.41 1.41" />
+            <path d="M22 22H2" />
+            <path d="m8 6 4-4 4 4" />
+            <path d="M16 18a4 4 0 0 0-8 0" />
+          </svg>
+        );
+      case "Dhuhr":
+        return (
+          <svg className={sizeClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2" />
+            <path d="M12 20v2" />
+            <path d="m4.93 4.93 1.41 1.41" />
+            <path d="m17.66 17.66 1.41 1.41" />
+            <path d="M2 12h2" />
+            <path d="M20 12h2" />
+            <path d="m6.34 17.66-1.41 1.41" />
+            <path d="m19.07 4.93-1.41 1.41" />
+          </svg>
+        );
+      case "Asr":
+        return (
+          <svg className={sizeClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 4v2" />
+            <path d="M12 18v2" />
+            <path d="m6.34 6.34 1.42 1.42" />
+            <path d="m16.24 16.24 1.42 1.42" />
+            <path d="M4 12h2" />
+            <path d="M18 12h2" />
+          </svg>
+        );
+      case "Maghrib":
+        return (
+          <svg className={sizeClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 10V2" />
+            <path d="m4.93 10.93 1.41 1.41" />
+            <path d="M2 18h2" />
+            <path d="M20 18h2" />
+            <path d="m19.07 10.93-1.41 1.41" />
+            <path d="M22 22H2" />
+            <path d="m16 6-4 4-4-4" />
+            <path d="M16 18a4 4 0 0 0-8 0" />
+          </svg>
+        );
+      case "Isha":
+        return (
+          <svg className={sizeClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+            <path d="M19 3v4" />
+            <path d="M21 5h-4" />
+          </svg>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Parse time string, handling formats like "06:22" or "06:22 (PKT)"
+  const parseTimeString = (timeStr: string): { hours: number; minutes: number } => {
+    // Extract just the time part (first HH:MM pattern)
+    const match = timeStr.match(/(\d{1,2}):(\d{2})/);
+    if (match) {
+      return { hours: parseInt(match[1], 10), minutes: parseInt(match[2], 10) };
+    }
+    return { hours: 0, minutes: 0 };
+  };
+
+  // Fetch prayer times
+  const fetchPrayerTimes = async (latitude: number, longitude: number) => {
+    try {
+      const today = new Date();
+      const timestamp = Math.floor(today.getTime() / 1000);
+
+      const response = await fetch(
+        `https://api.aladhan.com/v1/timings/${timestamp}?latitude=${latitude}&longitude=${longitude}&method=2`
+      );
+
+      if (!response.ok) throw new Error("Failed to fetch prayer times");
+
+      const data = await response.json();
+      const timings = data.data.timings as PrayerTimes;
+
+      // Calculate next prayer
+      const now = new Date();
+      const prayers = [
+        { name: "Fajr", time: timings.Fajr },
+        { name: "Dhuhr", time: timings.Dhuhr },
+        { name: "Asr", time: timings.Asr },
+        { name: "Maghrib", time: timings.Maghrib },
+        { name: "Isha", time: timings.Isha },
+      ];
+
+      // Convert prayer times to Date objects
+      const prayerDates = prayers.map((prayer) => {
+        const { hours, minutes } = parseTimeString(prayer.time);
+        const prayerDate = new Date(now);
+        prayerDate.setHours(hours, minutes, 0, 0);
+        return { ...prayer, date: prayerDate };
+      });
+
+      // Find next prayer index - prayer that's still in the future
+      let nextIndex = prayerDates.findIndex((prayer) => prayer.date.getTime() > now.getTime());
+      
+      // If no prayer found today (all have passed), next is Fajr tomorrow
+      const isTomorrow = nextIndex === -1;
+      if (isTomorrow) {
+        nextIndex = 0;
+      }
+
+      // Get the next prayer, adding 24 hours if it's tomorrow's Fajr
+      const nextPrayer = prayerDates[nextIndex];
+      let nextDate = new Date(nextPrayer.date);
+      
+      if (isTomorrow) {
+        nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
+      }
+
+      // Calculate time until next prayer
+      let msUntil = nextDate.getTime() - now.getTime();
+      
+      // Safety check: if somehow negative, move to next day
+      if (msUntil < 0) {
+        nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
+        msUntil = nextDate.getTime() - now.getTime();
+      }
+
+      const hoursUntil = Math.floor(msUntil / (1000 * 60 * 60));
+      const minutesUntil = Math.floor((msUntil % (1000 * 60 * 60)) / (1000 * 60));
+
+      // Format time until string
+      let timeUntilStr: string;
+      if (hoursUntil > 0) {
+        timeUntilStr = `${hoursUntil}h ${minutesUntil}m`;
+      } else if (minutesUntil > 0) {
+        timeUntilStr = `${minutesUntil}m`;
+      } else {
+        timeUntilStr = "<1m";
+      }
+
+      // Build all prayers list - if tomorrow, all today's prayers are past
+      const allPrayers = prayerDates.map((prayer, i) => ({
+        name: prayer.name,
+        time: prayer.time,
+        isPast: isTomorrow ? true : prayer.date.getTime() < now.getTime(),
+        isCurrent: i === nextIndex,
+      }));
+
+      setPrayerData({
+        next: {
+          name: nextPrayer.name,
+          time: nextPrayer.time,
+          timeUntil: timeUntilStr,
+        },
+        allPrayers,
+      });
+      setIsLoading(false);
+      setError(false);
+    } catch (err) {
+      console.error("Error fetching prayer times:", err);
+      setError(true);
+      setIsLoading(false);
+    }
+  };
+
+  // Get location and fetch prayer times
+  useEffect(() => {
+    const storedLocation = localStorage.getItem("prayerLocation");
+
+    if (storedLocation) {
+      const { latitude, longitude } = JSON.parse(storedLocation);
+      fetchPrayerTimes(latitude, longitude);
+    } else {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            localStorage.setItem("prayerLocation", JSON.stringify({ latitude, longitude }));
+            fetchPrayerTimes(latitude, longitude);
+          },
+          (err) => {
+            console.error("Geolocation error:", err);
+            setError(true);
+            setIsLoading(false);
+          }
+        );
+      } else {
+        setError(true);
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  // Update countdown every minute
+  useEffect(() => {
+    if (!prayerData) return;
+
+    const interval = setInterval(() => {
+      const storedLocation = localStorage.getItem("prayerLocation");
+      if (storedLocation) {
+        const { latitude, longitude } = JSON.parse(storedLocation);
+        fetchPrayerTimes(latitude, longitude);
+      }
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [prayerData]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-1.5 text-muted-foreground/60 dark:text-muted-foreground/70">
+        <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 dark:bg-muted-foreground/50 animate-pulse" />
+        <span className="text-[11px]">Loading...</span>
+      </div>
+    );
+  }
+
+  if (error || !prayerData) {
+    return null;
+  }
+
+  return (
+    <div className="relative">
+      {/* Inline widget - integrated into nav bar */}
+      <button
+        ref={triggerRef}
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-1.5 sm:gap-2 py-1 text-muted-foreground hover:text-foreground transition-colors group"
+      >
+        {/* Icon */}
+        <div className="text-muted-foreground/70 dark:text-muted-foreground/80 group-hover:text-foreground/80 transition-colors">
+          {getPrayerIcon(prayerData.next.name)}
+        </div>
+
+        {/* Prayer name */}
+        <span className="text-[11px] sm:text-[12px] font-medium text-foreground/90 dark:text-foreground/95 group-hover:text-foreground transition-colors">
+          {prayerData.next.name}
+        </span>
+        
+        {/* Time */}
+        <span className="text-[10px] sm:text-[11px] text-muted-foreground/70 dark:text-muted-foreground/80">
+          {formatTime(prayerData.next.time)}
+        </span>
+
+        {/* Separator - hidden on mobile for compactness */}
+        <span className="hidden sm:inline text-muted-foreground/40 dark:text-muted-foreground/50">·</span>
+
+        {/* Countdown - hidden on mobile for compactness */}
+        <span className="hidden sm:inline text-[11px] text-muted-foreground/60 dark:text-muted-foreground/70 tabular-nums">
+          in {prayerData.next.timeUntil}
+        </span>
+
+        {/* Expand indicator */}
+        <svg 
+          className={`w-3 h-3 text-muted-foreground/40 dark:text-muted-foreground/50 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2" 
+          strokeLinecap="round" 
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {/* Expanded dropdown - using portal to avoid clipping */}
+      {mounted && isExpanded && createPortal(
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-[100]"
+            onClick={() => setIsExpanded(false)}
+          />
+
+          {/* Dropdown panel */}
+          <div
+            className={`fixed z-[101] ${
+              isMobile
+                ? 'bottom-0 left-0 right-0 animate-slide-up'
+                : 'animate-fade-in'
+            }`}
+            style={
+              isMobile
+                ? {}
+                : {
+                    top: `${dropdownPosition.top}px`,
+                    right: `${dropdownPosition.right}px`,
+                  }
+            }
+          >
+            <div className={`p-3 bg-background/95 backdrop-blur-xl border border-border/50 dark:border-border/60 shadow-xl ${
+              isMobile
+                ? 'w-full border-t rounded-t-2xl pb-6'
+                : 'w-56 rounded-xl'
+            }`}>
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-border/30 dark:border-border/40">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 dark:text-muted-foreground/70 font-medium">
+                  Prayer Times
+                </span>
+                <span className="text-[10px] text-muted-foreground/50 dark:text-muted-foreground/60">
+                  {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                </span>
+              </div>
+
+              {/* Prayer list */}
+              <div className="space-y-0.5 max-h-[60vh] overflow-y-auto pb-safe">
+                {prayerData.allPrayers.map((prayer) => (
+                  <div
+                    key={prayer.name}
+                    className={`flex items-center justify-between py-2.5 px-2.5 rounded-lg transition-all duration-200 ${
+                      prayer.isCurrent
+                        ? "bg-foreground/[0.05] dark:bg-foreground/[0.10]"
+                        : prayer.isPast
+                          ? "opacity-50"
+                          : "hover:bg-foreground/[0.02] dark:hover:bg-foreground/[0.05]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`${prayer.isCurrent ? "text-foreground/80 dark:text-foreground/90" : "text-muted-foreground/60 dark:text-muted-foreground/70"}`}>
+                        {getPrayerIcon(prayer.name)}
+                      </div>
+                      <span className={`text-[13px] font-medium ${prayer.isCurrent ? "text-foreground" : "text-muted-foreground dark:text-muted-foreground/90"}`}>
+                        {prayer.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[12px] tabular-nums ${prayer.isCurrent ? "text-foreground/90 dark:text-foreground" : "text-muted-foreground/70 dark:text-muted-foreground/80"}`}>
+                        {formatTime(prayer.time)}
+                      </span>
+                      {prayer.isCurrent && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      )}
+                      {prayer.isPast && !prayer.isCurrent && (
+                        <svg className="w-3 h-3 text-muted-foreground/40 dark:text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
       )}
     </div>
   );
