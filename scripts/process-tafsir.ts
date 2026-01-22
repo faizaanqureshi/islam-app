@@ -18,9 +18,10 @@ config({ path: path.join(process.cwd(), ".env.local") });
 
 // Configuration
 const TAFSIR_API_BASE = "https://quranapi.pages.dev/api/tafsir";
-const BATCH_SIZE = 50; // Process 50 verses at a time
-const PARALLEL_REQUESTS = 10; // Process 10 verses in parallel within each batch
-const DELAY_MS = 500; // 500ms delay between batches
+const BATCH_SIZE = 100; // Process 100 verses at a time
+const PARALLEL_REQUESTS = 25; // Process 25 verses in parallel within each batch
+const SAVE_BATCH_SIZE = 50; // Save up to 50 records in a single upsert
+const DELAY_MS = 200; // 200ms delay between batches (reduced since we're batching saves)
 const TOTAL_SURAHS = 114; // Total number of surahs in the Quran
 
 // System prompt for GPT
@@ -356,42 +357,39 @@ Extract the structured context as JSON.`;
   };
 }
 
-// Save to Supabase
-async function saveToSupabase(
-  surah: number,
-  ayah: number,
-  context: {
-    theme: string;
-    context_summary: string;
-    asbab_al_nuzul: string | null;
-    scholarly_notes: string;
-  }
-) {
+// Type for processed verse context
+interface ProcessedContext {
+  surah: number;
+  ayah: number;
+  theme: string;
+  context_summary: string;
+  asbab_summary: string | null;
+  scholarly_notes: string;
+  source_name: string;
+}
+
+// Save batch to Supabase (much faster than individual saves)
+async function saveBatchToSupabase(contexts: ProcessedContext[]) {
+  if (contexts.length === 0) return;
+  
   const supabase = getSupabaseClient();
 
   const { error } = await supabase.from("verse_context").upsert(
-    {
-      surah,
-      ayah,
-      theme: context.theme,
-      context_summary: context.context_summary,
-      asbab_summary: context.asbab_al_nuzul,
-      scholarly_notes: context.scholarly_notes,
-      source_name: "Tafsir Ibn Kathir",
-    },
+    contexts,
     {
       onConflict: "surah,ayah",
     }
   );
 
   if (error) {
-    throw new Error(`Failed to save ${surah}:${ayah}: ${error.message}`);
+    throw new Error(`Failed to save batch: ${error.message}`);
   }
 }
 
 // Main processing function
 async function main() {
   console.log("Starting tafsir processing...");
+  console.log(`Config: BATCH_SIZE=${BATCH_SIZE}, PARALLEL=${PARALLEL_REQUESTS}, SAVE_BATCH=${SAVE_BATCH_SIZE}`);
   console.log(`Fetching individual verse tafsir from API for ${TOTAL_SURAHS} surahs...\n`);
 
   const openai = getOpenAIClient();
@@ -400,6 +398,25 @@ async function main() {
   let errors = 0;
   let skipped = 0;
   let noTafsir = 0;
+  let pendingSaves: ProcessedContext[] = [];
+
+  // Helper to flush pending saves
+  async function flushSaves() {
+    if (pendingSaves.length === 0) return;
+    
+    // Save in sub-batches
+    for (let i = 0; i < pendingSaves.length; i += SAVE_BATCH_SIZE) {
+      const batch = pendingSaves.slice(i, i + SAVE_BATCH_SIZE);
+      try {
+        await saveBatchToSupabase(batch);
+        console.log(`  💾 Saved batch of ${batch.length} verses`);
+      } catch (error) {
+        console.error(`  ✗ Error saving batch:`, error);
+        errors += batch.length;
+      }
+    }
+    pendingSaves = [];
+  }
 
   // Process each surah
   for (let surahNumber = 1; surahNumber <= TOTAL_SURAHS; surahNumber++) {
@@ -423,16 +440,14 @@ async function main() {
             // Check if context already exists
             const exists = await contextExists(surahNumber, ayah);
             if (exists) {
-              console.log(`  ⊙ Skipped ${surahNumber}:${ayah} (already exists)`);
-              return { success: true, ref: `${surahNumber}:${ayah}`, skipped: true };
+              return { type: 'skipped' as const, ref: `${surahNumber}:${ayah}` };
             }
 
             // Fetch tafsir for this specific verse
             const verseTafsirData = await fetchVerseTafsir(surahNumber, ayah);
 
             if (!verseTafsirData) {
-              console.log(`  ○ No tafsir for ${surahNumber}:${ayah}`);
-              return { success: true, ref: `${surahNumber}:${ayah}`, noTafsir: true };
+              return { type: 'noTafsir' as const, ref: `${surahNumber}:${ayah}` };
             }
 
             // Find Ibn Kathir's tafsir
@@ -441,65 +456,84 @@ async function main() {
             );
 
             if (!ibnKathirEntry) {
-              console.log(`  ○ No Ibn Kathir tafsir for ${surahNumber}:${ayah}`);
-              return { success: true, ref: `${surahNumber}:${ayah}`, noTafsir: true };
+              return { type: 'noTafsir' as const, ref: `${surahNumber}:${ayah}` };
             }
 
             const tafsirText = cleanTafsirText(ibnKathirEntry.content);
 
             if (!tafsirText) {
-              console.log(`  ○ Empty tafsir for ${surahNumber}:${ayah}`);
-              return { success: true, ref: `${surahNumber}:${ayah}`, noTafsir: true };
+              return { type: 'noTafsir' as const, ref: `${surahNumber}:${ayah}` };
             }
-
-            console.log(`  Processing ${surahNumber}:${ayah}...`);
 
             // Process with GPT
             const context = await processVerse(surahNumber, ayah, tafsirText, openai);
 
-            // Save to Supabase
-            await saveToSupabase(surahNumber, ayah, context);
-
-            console.log(`  ✓ Saved ${surahNumber}:${ayah}`);
-            return { success: true, ref: `${surahNumber}:${ayah}`, skipped: false };
+            // Return processed context for batched saving
+            return {
+              type: 'processed' as const,
+              ref: `${surahNumber}:${ayah}`,
+              data: {
+                surah: surahNumber,
+                ayah,
+                theme: context.theme,
+                context_summary: context.context_summary,
+                asbab_summary: context.asbab_al_nuzul,
+                scholarly_notes: context.scholarly_notes,
+                source_name: "Tafsir Ibn Kathir",
+              } as ProcessedContext,
+            };
           } catch (error) {
             console.error(`  ✗ Error processing ${surahNumber}:${ayah}:`, error);
-            return { success: false, ref: `${surahNumber}:${ayah}`, error };
+            return { type: 'error' as const, ref: `${surahNumber}:${ayah}`, error };
           }
         });
 
         // Wait for all parallel requests to complete
         const results = await Promise.all(promises);
 
-        // Count successes, errors, and skips
-        results.forEach((result) => {
-          if (result.success) {
-            if ('skipped' in result && result.skipped) {
+        // Collect results and queue saves
+        for (const result of results) {
+          switch (result.type) {
+            case 'skipped':
               skipped++;
-            } else if ('noTafsir' in result && result.noTafsir) {
+              break;
+            case 'noTafsir':
               noTafsir++;
-            } else {
+              break;
+            case 'processed':
               processed++;
-            }
-          } else {
-            errors++;
+              pendingSaves.push(result.data);
+              break;
+            case 'error':
+              errors++;
+              break;
           }
-        });
+        }
+
+        // Save immediately after each parallel chunk completes (streaming saves)
+        if (pendingSaves.length >= SAVE_BATCH_SIZE) {
+          await flushSaves();
+        }
       }
 
-      // Delay between batches
+      // Flush any remaining saves after the batch
+      await flushSaves();
+
+      // Brief delay between batches
       if (batchEnd < totalVerses) {
-        console.log(`Waiting ${DELAY_MS}ms before next batch...`);
         await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
       }
+
+      // Progress update
+      const totalProcessedThisSurah = processed + skipped + noTafsir + errors;
+      console.log(`  Progress: ${processed} processed, ${skipped} skipped, ${noTafsir} no tafsir, ${errors} errors`);
     }
 
-    // Delay between surahs
-    if (surahNumber < TOTAL_SURAHS) {
-      console.log(`\nWaiting ${DELAY_MS}ms before next surah...`);
-      await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
-    }
+    // No extra delay between surahs - keep the momentum
   }
+
+  // Final flush
+  await flushSaves();
 
   console.log("\n=== Processing Complete ===");
   console.log(`Processed: ${processed}`);

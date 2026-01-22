@@ -55,8 +55,8 @@ const CONFIG = {
   source: "quran_json",
   embeddingModel: "text-embedding-3-large",
   embeddingDimensions: 3072, // Full quality, no index needed for ~6K verses
-  embeddingBatchSize: 100,
-  insertBatchSize: 50,
+  embeddingBatchSize: 200, // Increased from 100 - OpenAI can handle larger batches
+  insertBatchSize: 100, // Increased from 50 - Supabase can handle larger batches
 };
 
 // Helper to delay execution (rate limiting)
@@ -230,8 +230,8 @@ async function main() {
         `\r   Progress: ${progress}% (${processed}/${totalAyahs}) - ${surahInfo}                    `
       );
 
-      // Small delay to avoid rate limiting
-      await delay(100);
+      // Small delay to avoid rate limiting (reduced since we're using larger batches)
+      await delay(50);
     } catch (error) {
       console.error(`\n❌ Error processing batch at index ${i}:`, error);
       errors++;
