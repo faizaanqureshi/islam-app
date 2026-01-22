@@ -698,8 +698,9 @@ function MarkdownRenderer({ content, context }: { content: string; context?: Pai
 function InlineFormatting({ text, context }: { text: string; context?: PairedVerse[] }) {
   // Combined pattern for bold and citations
   // Bold: **text** (allowing asterisks inside by using lazy match)
-  // Citations: (2:153), (16:127; 70:5), (4:11, 4:12)
-  const tokenPattern = /(\*\*.+?\*\*|\(\d+:\d+(?:[;,]\s*\d+:\d+)*\))/g;
+  // Citations: (2:153), (16:127; 70:5), (4:11, 4:12), (2:231-232), (4:23–24)
+  // Note: handles both hyphen (-) and en-dash (–) for ranges
+  const tokenPattern = /(\*\*.+?\*\*|\(\d+:\d+(?:[-–]\d+)?(?:[;,]\s*\d+:\d+(?:[-–]\d+)?)*\))/g;
   const parts = text.split(tokenPattern).filter(Boolean);
 
   // Helper to find verse in context
@@ -707,27 +708,48 @@ function InlineFormatting({ text, context }: { text: string; context?: PairedVer
     return context?.find((v) => v.surah === surah && v.ayah === ayah);
   };
 
-  // Parse citations from a citation string like "(2:153)" or "(16:127; 70:5)"
+  // Parse citations from a citation string like "(2:153)", "(16:127; 70:5)", or "(2:231-232)"
+  // Returns expanded list of all individual verses (ranges are expanded)
   const parseCitationString = (citationStr: string): Array<{ surah: number; ayah: number }> => {
     const refs: Array<{ surah: number; ayah: number }> = [];
-    const matches = citationStr.matchAll(/(\d+):(\d+)/g);
+    // Match patterns like "2:153" or "2:231-232" or "2:231–232" (en-dash)
+    const matches = citationStr.matchAll(/(\d+):(\d+)(?:[-–](\d+))?/g);
     for (const match of matches) {
-      refs.push({ surah: parseInt(match[1]), ayah: parseInt(match[2]) });
+      const surah = parseInt(match[1]);
+      const startAyah = parseInt(match[2]);
+      const endAyah = match[3] ? parseInt(match[3]) : startAyah;
+      
+      // Expand range into individual verses
+      for (let ayah = startAyah; ayah <= endAyah; ayah++) {
+        refs.push({ surah, ayah });
+      }
     }
     return refs;
+  };
+
+  // Check if citation contains any ranges
+  const citationHasRange = (citationStr: string): boolean => {
+    return /\d+:\d+[-–]\d+/.test(citationStr);
   };
 
   return (
     <>
       {parts.map((part, i) => {
-        // Check if it's a citation
-        if (/^\(\d+:\d+(?:[;,]\s*\d+:\d+)*\)$/.test(part)) {
+        // Check if it's a citation (updated pattern to include ranges)
+        if (/^\(\d+:\d+(?:[-–]\d+)?(?:[;,]\s*\d+:\d+(?:[-–]\d+)?)*\)$/.test(part)) {
           const refs = parseCitationString(part);
           const verses = refs.map((r) => findVerse(r.surah, r.ayah)).filter(Boolean) as PairedVerse[];
+          const hasRange = citationHasRange(part);
 
           // Always render citation badge, even if verse not in context
           return (
-            <CitationWithTooltip key={i} citation={part} verses={verses} />
+            <CitationWithTooltip 
+              key={i} 
+              citation={part} 
+              verses={verses} 
+              verseRefs={refs}
+              hasRange={hasRange}
+            />
           );
         }
         // Check if it's bold text - use semibold for subtler emphasis
@@ -741,16 +763,39 @@ function InlineFormatting({ text, context }: { text: string; context?: PairedVer
   );
 }
 
-// Citation with elegant hover tooltip with context
-function CitationWithTooltip({ citation, verses }: { citation: string; verses: PairedVerse[] }) {
+// Extended verse type that includes fetched verses (may not have similarity)
+interface ExtendedVerse {
+  surah: number;
+  ayah: number;
+  arabic: string;
+  english: string;
+  similarity?: number;
+}
+
+// Citation with click-to-open modal
+function CitationWithTooltip({ 
+  citation, 
+  verses, 
+  verseRefs,
+  hasRange 
+}: { 
+  citation: string; 
+  verses: PairedVerse[];
+  verseRefs: Array<{ surah: number; ayah: number }>;
+  hasRange: boolean;
+}) {
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState<"above" | "below">("below");
   const [contextData, setContextData] = useState<Record<string, VerseContext | null>>({});
   const [loadingContext, setLoadingContext] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
+  const [allVerses, setAllVerses] = useState<ExtendedVerse[]>([]);
+  const [loadingVerses, setLoadingVerses] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
-  const containerRef = useRef<HTMLSpanElement>(null);
+
+  // Total number of verses in this citation (for ranges)
+  const totalVerses = verseRefs.length;
 
   // Detect mobile on mount
   useEffect(() => {
@@ -762,58 +807,123 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Fetch context data
-  const fetchContext = async () => {
-    if (verses.length > 0 && Object.keys(contextData).length === 0) {
-      setLoadingContext(true);
-      const contexts: Record<string, VerseContext | null> = {};
+  // Fetch all verses (including those not in context) when opening
+  const fetchAllVerses = async () => {
+    if (allVerses.length > 0) return; // Already fetched
+    
+    setLoadingVerses(true);
+    const fetchedVerses: ExtendedVerse[] = [];
 
-      await Promise.all(
-        verses.map(async (verse) => {
-          const key = `${verse.surah}:${verse.ayah}`;
-          try {
-            const res = await fetch(`/api/quran/context?surah=${verse.surah}&ayah=${verse.ayah}`);
-            if (res.ok) {
-              const data = await res.json();
-              contexts[key] = data.success && data.data ? data.data : null;
-            } else {
-              contexts[key] = null;
+    for (const ref of verseRefs) {
+      // First check if verse is in the context
+      const existingVerse = verses.find(v => v.surah === ref.surah && v.ayah === ref.ayah);
+      if (existingVerse) {
+        fetchedVerses.push({
+          surah: existingVerse.surah,
+          ayah: existingVerse.ayah,
+          arabic: existingVerse.arabic,
+          english: existingVerse.english,
+          similarity: existingVerse.similarity,
+        });
+      } else {
+        // Fetch from API
+        try {
+          const res = await fetch(`/api/quran/ayah?surah=${ref.surah}&ayah=${ref.ayah}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.data) {
+              fetchedVerses.push({
+                surah: ref.surah,
+                ayah: ref.ayah,
+                arabic: data.data.arabic || "",
+                english: data.data.english || "",
+              });
             }
-          } catch {
-            contexts[key] = null;
           }
-        })
-      );
-
-      setContextData(contexts);
-      setLoadingContext(false);
+        } catch {
+          // If fetch fails, add placeholder
+          fetchedVerses.push({
+            surah: ref.surah,
+            ayah: ref.ayah,
+            arabic: "",
+            english: "Unable to load verse",
+          });
+        }
+      }
     }
+
+    setAllVerses(fetchedVerses);
+    setLoadingVerses(false);
   };
 
-  // Desktop hover handler
-  const handleMouseEnter = async () => {
-    if (isMobile) return;
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      setPosition(spaceBelow < 300 ? "above" : "below");
+  // Fetch context data for current verse
+  const fetchContext = async () => {
+    const versesToFetch = allVerses.length > 0 ? allVerses : verses;
+    if (versesToFetch.length === 0) return;
+
+    const currentVerse = versesToFetch[currentVerseIndex];
+    if (!currentVerse) return;
+
+    const key = `${currentVerse.surah}:${currentVerse.ayah}`;
+    if (contextData[key] !== undefined) return; // Already fetched
+
+    setLoadingContext(true);
+    try {
+      const res = await fetch(`/api/quran/context?surah=${currentVerse.surah}&ayah=${currentVerse.ayah}`);
+      if (res.ok) {
+        const data = await res.json();
+        setContextData(prev => ({
+          ...prev,
+          [key]: data.success && data.data ? data.data : null,
+        }));
+      } else {
+        setContextData(prev => ({ ...prev, [key]: null }));
+      }
+    } catch {
+      setContextData(prev => ({ ...prev, [key]: null }));
     }
-    setIsOpen(true);
-    fetchContext();
+    setLoadingContext(false);
   };
 
-  // Mobile tap handler
-  const handleClick = (e: React.MouseEvent) => {
-    if (!isMobile || verses.length === 0) return;
+  // Fetch context when current verse changes
+  useEffect(() => {
+    if (isOpen && (allVerses.length > 0 || verses.length > 0)) {
+      fetchContext();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVerseIndex, isOpen, allVerses]);
+
+  // Click handler for opening modal (works for both desktop and mobile)
+  const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsOpen(true);
+    if (hasRange || verses.length === 0) {
+      await fetchAllVerses();
+    }
     fetchContext();
   };
 
-  // Prevent body scroll when modal is open on mobile
+  // Navigation handlers
+  const goToPrevVerse = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentVerseIndex(prev => Math.max(0, prev - 1));
+  };
+
+  const goToNextVerse = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentVerseIndex(prev => Math.min(totalVerses - 1, prev + 1));
+  };
+
+  // Reset verse index when closing
+  const handleClose = () => {
+    setIsOpen(false);
+    setCurrentVerseIndex(0);
+  };
+
+  // Prevent body scroll when modal is open
   useEffect(() => {
-    if (isMobile && isOpen) {
+    if (isOpen) {
       // Store current scroll position
       const scrollY = window.scrollY;
       
@@ -834,156 +944,198 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
         window.scrollTo(0, scrollY);
       };
     }
-  }, [isMobile, isOpen]);
+  }, [isOpen]);
 
-  // Tooltip/Modal content
-  const renderContent = () => (
-    <>
-      {verses.map((verse, idx) => {
-        const key = `${verse.surah}:${verse.ayah}`;
-        const context = contextData[key];
+  // Get current verse to display
+  const versesToShow = allVerses.length > 0 ? allVerses : verses;
+  const currentVerse = versesToShow[currentVerseIndex];
 
-        return (
-          <div
-            key={idx}
-            className={`p-4 ${idx > 0 ? "border-t border-zinc-200 dark:border-zinc-700/30" : ""}`}
-          >
-            {/* Verse reference with theme */}
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">
-                  Surah {verse.surah}, Ayah {verse.ayah}
-                </span>
-                {context?.theme && (
-                  <>
-                    <span className="text-zinc-400 dark:text-zinc-600 hidden sm:inline">•</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400">
-                      {context.theme}
-                    </span>
-                  </>
-                )}
-              </div>
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-600">
-                {(verse.similarity * 100).toFixed(0)}% match
-              </span>
-            </div>
+  // Tooltip/Modal content - now shows one verse at a time with navigation for ranges
+  const renderContent = () => {
+    if (loadingVerses) {
+      return (
+        <div className="p-4 flex items-center justify-center">
+          <div className="flex gap-1">
+            <span className="w-2 h-2 rounded-full bg-zinc-500/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-2 h-2 rounded-full bg-zinc-500/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-2 h-2 rounded-full bg-zinc-500/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+          </div>
+        </div>
+      );
+    }
 
-            {/* Arabic text */}
-            {verse.arabic && (
-              <p
-                className="text-lg sm:text-xl leading-loose text-zinc-900 dark:text-zinc-100 mb-3 font-arabic text-right"
-                dir="rtl"
+    if (!currentVerse) {
+      return (
+        <div className="p-4 text-sm text-zinc-500">
+          Unable to load verse
+        </div>
+      );
+    }
+
+    const key = `${currentVerse.surah}:${currentVerse.ayah}`;
+    const context = contextData[key];
+
+    return (
+      <div className="p-4">
+        {/* Navigation header for ranges */}
+        {totalVerses > 1 && (
+          <div className="flex items-center justify-between mb-3 pb-3 border-b border-zinc-200 dark:border-zinc-700/30">
+            <button
+              onClick={goToPrevVerse}
+              disabled={currentVerseIndex === 0}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <svg
+                className="w-4 h-4 text-zinc-600 dark:text-zinc-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                {verse.arabic}
-              </p>
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              {currentVerseIndex + 1} / {totalVerses}
+            </span>
+            <button
+              onClick={goToNextVerse}
+              disabled={currentVerseIndex === totalVerses - 1}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <svg
+                className="w-4 h-4 text-zinc-600 dark:text-zinc-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Verse reference with theme */}
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">
+              Surah {currentVerse.surah}, Ayah {currentVerse.ayah}
+            </span>
+            {context?.theme && (
+              <>
+                <span className="text-zinc-400 dark:text-zinc-600 hidden sm:inline">•</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400">
+                  {context.theme}
+                </span>
+              </>
             )}
+          </div>
+          {currentVerse.similarity !== undefined && (
+            <span className="text-[10px] text-zinc-400 dark:text-zinc-600">
+              {(currentVerse.similarity * 100).toFixed(0)}% match
+            </span>
+          )}
+        </div>
 
-            {/* English translation */}
-            <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 mb-3">
-              {verse.english}
-            </p>
+        {/* Arabic text */}
+        {currentVerse.arabic && (
+          <p
+            className="text-lg sm:text-xl leading-loose text-zinc-900 dark:text-zinc-100 mb-3 font-arabic text-right"
+            dir="rtl"
+          >
+            {currentVerse.arabic}
+          </p>
+        )}
 
-            {/* Context information */}
-            {loadingContext && !context && (
-              <div className="text-xs text-zinc-500 italic">
-                Loading context...
+        {/* English translation */}
+        <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 mb-3">
+          {currentVerse.english}
+        </p>
+
+        {/* Context information */}
+        {loadingContext && context === undefined && (
+          <div className="text-xs text-zinc-500 italic">
+            Loading context...
+          </div>
+        )}
+
+        {context && (
+          <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700/30 space-y-2">
+            {context.context_summary && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                  Context
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {context.context_summary}
+                </p>
               </div>
             )}
 
-            {context && (
-              <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700/30 space-y-2">
-                {context.context_summary && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
-                      Context
-                    </div>
-                    <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-                      {context.context_summary}
-                    </p>
-                  </div>
-                )}
-
-                {context.asbab_summary && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
-                      Occasion
-                    </div>
-                    <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-                      {context.asbab_summary}
-                    </p>
-                  </div>
-                )}
+            {context.asbab_summary && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                  Occasion
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {context.asbab_summary}
+                </p>
               </div>
             )}
           </div>
-        );
-      })}
-    </>
-  );
+        )}
+      </div>
+    );
+  };
+
+  // Determine if we have content to show
+  const hasContent = verseRefs.length > 0;
 
   return (
     <>
-      <span 
-        ref={containerRef}
-        className="relative inline-block"
-        onMouseEnter={verses.length > 0 && !isMobile ? handleMouseEnter : undefined}
-        onMouseLeave={verses.length > 0 && !isMobile ? () => setIsOpen(false) : undefined}
+      <span
+        ref={triggerRef}
+        onClick={hasContent ? handleClick : undefined}
+        className={`inline-flex items-center px-1 py-0.5 mx-0.5 rounded bg-foreground/[0.04] dark:bg-foreground/[0.08] font-mono text-xs text-muted-foreground transition-colors ${
+          hasContent
+            ? "cursor-pointer hover:bg-foreground/[0.08] dark:hover:bg-foreground/[0.12]"
+            : "cursor-default"
+        }`}
+        title={!hasContent ? "Verse preview not available" : undefined}
       >
-        <span
-          ref={triggerRef}
-          onClick={handleClick}
-          className={`inline-flex items-center px-1 py-0.5 mx-0.5 rounded bg-foreground/[0.04] dark:bg-foreground/[0.08] font-mono text-xs text-muted-foreground transition-colors ${
-            verses.length > 0
-              ? "cursor-help hover:bg-foreground/[0.08] dark:hover:bg-foreground/[0.12]"
-              : "cursor-default"
-          }`}
-          title={verses.length === 0 ? "Verse preview not available" : undefined}
-        >
-          {citation}
-        </span>
-
-        {/* Desktop Tooltip */}
-        {!isMobile && isOpen && verses.length > 0 && (
-          <div
-            className={`absolute z-50 w-[420px] max-w-[calc(100vw-2rem)] ${
-              position === "above" ? "bottom-full mb-2" : "top-full mt-2"
-            } left-1/2 -translate-x-1/2`}
-          >
-            {/* Arrow */}
-            <div
-              className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700/50 ${
-                position === "above"
-                  ? "bottom-[-6px] border-r border-b"
-                  : "top-[-6px] border-l border-t"
-              }`}
-            />
-
-            {/* Content */}
-            <div className="relative bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/50 rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in max-h-[70vh] overflow-y-auto">
-              {renderContent()}
-            </div>
-          </div>
-        )}
+        {citation}
       </span>
 
-      {/* Mobile Modal */}
-      {mounted && isMobile && isOpen && verses.length > 0 && createPortal(
+      {/* Modal (both desktop and mobile) */}
+      {mounted && isOpen && hasContent && createPortal(
         <div
-          className="fixed inset-0 z-[9999] bg-black/40 dark:bg-black/60 backdrop-blur-sm animate-fade-in touch-none"
-          onClick={() => setIsOpen(false)}
-          onTouchMove={(e) => e.preventDefault()}
-          style={{ display: 'flex', alignItems: 'flex-end' }}
+          className="fixed inset-0 z-[9999] bg-black/40 dark:bg-black/60 backdrop-blur-sm animate-fade-in"
+          onClick={handleClose}
+          style={{ 
+            display: 'flex', 
+            alignItems: isMobile ? 'flex-end' : 'center',
+            justifyContent: 'center',
+            padding: isMobile ? 0 : '1rem'
+          }}
         >
           <div
-            className="relative w-full max-h-[85vh] bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-700/50 rounded-t-2xl shadow-2xl overflow-hidden animate-slide-up touch-auto"
+            className={`relative bg-white dark:bg-zinc-900 shadow-2xl overflow-hidden ${
+              isMobile 
+                ? "w-full max-h-[85vh] border-t border-zinc-200 dark:border-zinc-700/50 rounded-t-2xl animate-slide-up" 
+                : "w-full max-w-lg max-h-[80vh] border border-zinc-200 dark:border-zinc-700/50 rounded-2xl animate-fade-in"
+            }`}
             onClick={(e) => e.stopPropagation()}
-            onTouchMove={(e) => e.stopPropagation()}
           >
             {/* Header with citation and close button */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
               <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">{citation}</span>
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={handleClose}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
               >
                 <svg
@@ -1002,7 +1154,7 @@ function CitationWithTooltip({ citation, verses }: { citation: string; verses: P
             </div>
 
             {/* Scrollable content */}
-            <div className="overflow-y-auto max-h-[calc(85vh-56px)]">
+            <div className={`overflow-y-auto ${isMobile ? "max-h-[calc(85vh-56px)]" : "max-h-[calc(80vh-56px)]"}`}>
               {renderContent()}
             </div>
           </div>

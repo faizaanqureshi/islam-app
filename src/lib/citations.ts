@@ -6,22 +6,28 @@ import type { Citation, VerseRef } from "./types";
 
 /**
  * Parse citation references from text
- * Matches patterns like (2:153), (1:1-7), [2:255]
+ * Matches patterns like (2:153), (1:1-7), [2:255], (2:231-232), (4:23–24)
+ * Note: handles both hyphen (-) and en-dash (–) for ranges
  */
 export function parseCitations(text: string): Citation[] {
   const citations: Citation[] = [];
   
-  // Match patterns: (2:153), [2:153], 2:153
-  const pattern = /[\[\(]?(\d{1,3}):(\d{1,3})[\]\)]?/g;
+  // Match patterns: (2:153), [2:153], 2:153, 2:231-232, 2:231–232
+  // Captures: group 1 = surah, group 2 = start ayah, group 3 = end ayah (optional)
+  const pattern = /[\[\(]?(\d{1,3}):(\d{1,3})(?:[-–](\d{1,3}))?[\]\)]?/g;
   let match;
 
   while ((match = pattern.exec(text)) !== null) {
     const surah = parseInt(match[1], 10);
-    const ayah = parseInt(match[2], 10);
+    const startAyah = parseInt(match[2], 10);
+    const endAyah = match[3] ? parseInt(match[3], 10) : startAyah;
 
     // Validate surah (1-114) and ayah (1-286 max)
-    if (surah >= 1 && surah <= 114 && ayah >= 1 && ayah <= 286) {
-      citations.push({ surah, ayah });
+    if (surah >= 1 && surah <= 114 && startAyah >= 1 && startAyah <= 286) {
+      // Expand range into individual verses
+      for (let ayah = startAyah; ayah <= Math.min(endAyah, 286); ayah++) {
+        citations.push({ surah, ayah });
+      }
     }
   }
 
@@ -50,9 +56,10 @@ export function formatCitation(surah: number, ayah: number): string {
 
 /**
  * Check if a paragraph contains at least one citation
+ * Handles both single verses and ranges like (2:231-232)
  */
 export function paragraphHasCitation(paragraph: string): boolean {
-  const pattern = /[\[\(](\d{1,3}):(\d{1,3})[\]\)]/;
+  const pattern = /[\[\(](\d{1,3}):(\d{1,3})(?:[-–](\d{1,3}))?[\]\)]/;
   return pattern.test(paragraph);
 }
 
