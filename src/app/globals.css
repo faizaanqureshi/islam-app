@@ -59,18 +59,33 @@
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-dm-sans), system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* Subtle warm radial glow from top */
-  background-image: radial-gradient(
-    ellipse 120% 50% at 50% -5%,
-    var(--gold-muted),
-    transparent
-  );
-  background-attachment: fixed;
+  /* Three-layer background:
+     1. Fractal noise grain — parchment texture feel
+     2. Islamic diamond lattice — geometric depth
+     3. Warm gold radial glow from top
+  */
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M30 0 L60 30 L30 60 L0 30 Z' fill='none' stroke='%238a6a30' stroke-width='0.65' stroke-opacity='0.07'/%3E%3Cpath d='M30 20 L40 30 L30 40 L20 30 Z' fill='none' stroke='%238a6a30' stroke-width='0.4' stroke-opacity='0.045'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 120% 50% at 50% -5%, var(--gold-muted), transparent);
+  background-size: 256px 256px, 60px 60px, auto;
+  background-repeat: repeat, repeat, no-repeat;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-image:
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M30 0 L60 30 L30 60 L0 30 Z' fill='none' stroke='%23c9a664' stroke-width='0.65' stroke-opacity='0.05'/%3E%3Cpath d='M30 20 L40 30 L30 40 L20 30 Z' fill='none' stroke='%23c9a664' stroke-width='0.4' stroke-opacity='0.03'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 120% 50% at 50% -5%, var(--gold-muted), transparent);
+    background-size: 256px 256px, 60px 60px, auto;
+    background-repeat: repeat, repeat, no-repeat;
+  }
 }
 
 /* Display font — Cormorant Garamond */

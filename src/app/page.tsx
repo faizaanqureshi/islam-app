@@ -336,17 +336,17 @@ export default function Home() {
           <div className="flex w-full max-w-2xl flex-col items-center gap-8 px-6">
             {/* Logo / Title */}
             <div className="flex flex-col items-center gap-3 animate-fade-in">
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-3">
                 <p
-                  className="font-arabic text-5xl"
+                  className="font-arabic text-6xl sm:text-7xl md:text-8xl"
                   dir="rtl"
-                  style={{ color: 'var(--gold)', lineHeight: '1.6', opacity: 0.88 }}
+                  style={{ color: 'var(--gold)', lineHeight: '1.5', opacity: 0.88 }}
                 >
                   هداية
                 </p>
                 <h1
-                  className="font-display text-lg font-light text-foreground/80"
-                  style={{ letterSpacing: '0.35em', textTransform: 'uppercase' }}
+                  className="font-display text-base sm:text-xl md:text-2xl font-light text-foreground/70"
+                  style={{ letterSpacing: '0.4em', textTransform: 'uppercase' }}
                 >
                   Hidayah
                 </h1>
@@ -1779,7 +1779,7 @@ function AyahExplorer() {
 
   return (
     <>
-      <div className="min-h-[calc(100vh-3.5rem)] bg-background">
+      <div className="min-h-[calc(100vh-3.5rem)]">
         <div className="mx-auto max-w-4xl px-4 py-8">
         {/* Surah Selector */}
         <div className="mb-8 animate-fade-in">
