@@ -260,7 +260,7 @@ export default function Home() {
               >
                 Ask Questions
                 {activeTab === "questions" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
                 )}
               </button>
               <button
@@ -273,7 +273,7 @@ export default function Home() {
               >
                 Ayah Explorer
                 {activeTab === "explorer" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full" />
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
                 )}
               </button>
             </div>
@@ -308,7 +308,7 @@ export default function Home() {
                 <path d="M12 12c-2.5-2-5-2-7 0" />
                 <path d="M12 17c-2.5-2-5-2-7 0" />
               </svg>
-              <span className="font-medium text-sm">Hidayah</span>
+              <span className="font-display text-base font-normal tracking-widest uppercase" style={{ letterSpacing: '0.2em' }}>Hidayah</span>
             </button>
             <button
               onClick={() => setMessages([])}
@@ -336,28 +336,21 @@ export default function Home() {
           <div className="flex w-full max-w-2xl flex-col items-center gap-8 px-6">
             {/* Logo / Title */}
             <div className="flex flex-col items-center gap-3 animate-fade-in">
-              <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-foreground/[0.03] dark:bg-foreground/[0.06] border border-border/50">
-                <svg
-                  className="w-6 h-6 text-foreground/80"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              <div className="flex flex-col items-center gap-2">
+                <p
+                  className="font-arabic text-5xl"
+                  dir="rtl"
+                  style={{ color: 'var(--gold)', lineHeight: '1.6', opacity: 0.88 }}
                 >
-                  <path d="M12 3v18" />
-                  <path d="M12 7c2.5-2 5-2 7 0" />
-                  <path d="M12 12c2.5-2 5-2 7 0" />
-                  <path d="M12 17c2.5-2 5-2 7 0" />
-                  <path d="M12 7c-2.5-2-5-2-7 0" />
-                  <path d="M12 12c-2.5-2-5-2-7 0" />
-                  <path d="M12 17c-2.5-2-5-2-7 0" />
-                </svg>
+                  هداية
+                </p>
+                <h1
+                  className="font-display text-lg font-light text-foreground/80"
+                  style={{ letterSpacing: '0.35em', textTransform: 'uppercase' }}
+                >
+                  Hidayah
+                </h1>
               </div>
-              <h1 className="text-xl font-medium tracking-tight text-foreground">
-                Hidayah
-              </h1>
             </div>
 
             {/* Tagline */}
@@ -633,21 +626,21 @@ function MarkdownRenderer({ content, context }: { content: string; context?: Pai
         // Handle markdown headers
         if (trimmed.startsWith("### ")) {
           return (
-            <h3 key={i} className="text-base font-semibold mt-4 mb-2">
+            <h3 key={i} className="font-display text-lg font-semibold mt-4 mb-2">
               <InlineFormatting text={trimmed.slice(4)} context={context} />
             </h3>
           );
         }
         if (trimmed.startsWith("## ")) {
           return (
-            <h2 key={i} className="text-lg font-semibold mt-4 mb-2">
+            <h2 key={i} className="font-display text-xl font-semibold mt-4 mb-2">
               <InlineFormatting text={trimmed.slice(3)} context={context} />
             </h2>
           );
         }
         if (trimmed.startsWith("# ")) {
           return (
-            <h1 key={i} className="text-xl font-semibold mt-4 mb-2">
+            <h1 key={i} className="font-display text-2xl font-semibold mt-4 mb-2">
               <InlineFormatting text={trimmed.slice(2)} context={context} />
             </h1>
           );
@@ -968,9 +961,9 @@ function CitationWithTooltip({
       return (
         <div className="p-4 flex items-center justify-center">
           <div className="flex gap-1">
-            <span className="w-2 h-2 rounded-full bg-zinc-500/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-            <span className="w-2 h-2 rounded-full bg-zinc-500/60 animate-bounce" style={{ animationDelay: "150ms" }} />
-            <span className="w-2 h-2 rounded-full bg-zinc-500/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+            <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "300ms" }} />
           </div>
         </div>
       );
@@ -978,7 +971,7 @@ function CitationWithTooltip({
 
     if (!currentVerse) {
       return (
-        <div className="p-4 text-sm text-zinc-500">
+        <div className="p-4 text-sm text-muted">
           Unable to load verse
         </div>
       );
@@ -991,14 +984,14 @@ function CitationWithTooltip({
       <div className="p-4">
         {/* Navigation header for ranges */}
         {totalVerses > 1 && (
-          <div className="flex items-center justify-between mb-3 pb-3 border-b border-zinc-200 dark:border-zinc-700/30">
+          <div className="flex items-center justify-between mb-3 pb-3 border-b border-border/40">
             <button
               onClick={goToPrevVerse}
               disabled={currentVerseIndex === 0}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <svg
-                className="w-4 h-4 text-zinc-600 dark:text-zinc-400"
+                className="w-4 h-4 text-muted-foreground"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1009,16 +1002,16 @@ function CitationWithTooltip({
                 <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-muted">
               {currentVerseIndex + 1} / {totalVerses}
             </span>
             <button
               onClick={goToNextVerse}
               disabled={currentVerseIndex === totalVerses - 1}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <svg
-                className="w-4 h-4 text-zinc-600 dark:text-zinc-400"
+                className="w-4 h-4 text-muted-foreground"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1035,20 +1028,20 @@ function CitationWithTooltip({
         {/* Verse reference with theme */}
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider">
               Surah {currentVerse.surah}, Ayah {currentVerse.ayah}
             </span>
             {context?.theme && (
               <>
-                <span className="text-zinc-400 dark:text-zinc-600 hidden sm:inline">•</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400">
+                <span className="text-muted-foreground/40 hidden sm:inline">•</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent text-muted-foreground">
                   {context.theme}
                 </span>
               </>
             )}
           </div>
           {currentVerse.similarity !== undefined && (
-            <span className="text-[10px] text-zinc-400 dark:text-zinc-600">
+            <span className="text-[10px] text-muted-foreground/60">
               {(currentVerse.similarity * 100).toFixed(0)}% match
             </span>
           )}
@@ -1057,7 +1050,7 @@ function CitationWithTooltip({
         {/* Arabic text */}
         {currentVerse.arabic && (
           <p
-            className="text-lg sm:text-xl leading-loose text-zinc-900 dark:text-zinc-100 mb-3 font-arabic text-right"
+            className="text-lg sm:text-xl leading-loose text-foreground mb-3 font-arabic text-right"
             dir="rtl"
           >
             {currentVerse.arabic}
@@ -1065,25 +1058,25 @@ function CitationWithTooltip({
         )}
 
         {/* English translation */}
-        <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 mb-3">
+        <p className="text-sm leading-relaxed text-muted-foreground mb-3">
           {currentVerse.english}
         </p>
 
         {/* Context information */}
         {loadingContext && context === undefined && (
-          <div className="text-xs text-zinc-500 italic">
+          <div className="text-xs text-muted italic">
             Loading context...
           </div>
         )}
 
         {context && (
-          <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700/30 space-y-2">
+          <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             {context.context_summary && (
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                <div className="text-[10px] uppercase tracking-wider text-muted mb-1">
                   Context
                 </div>
-                <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {context.context_summary}
                 </p>
               </div>
@@ -1091,10 +1084,10 @@ function CitationWithTooltip({
 
             {context.asbab_summary && (
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                <div className="text-[10px] uppercase tracking-wider text-muted mb-1">
                   Occasion
                 </div>
-                <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {context.asbab_summary}
                 </p>
               </div>
@@ -1113,10 +1106,10 @@ function CitationWithTooltip({
       <span
         ref={triggerRef}
         onClick={hasContent ? handleClick : undefined}
-        className={`inline-flex items-center px-1 py-0.5 mx-0.5 rounded bg-foreground/[0.04] dark:bg-foreground/[0.08] font-mono text-xs text-muted-foreground transition-colors ${
+        className={`citation-badge mx-0.5 ${
           hasContent
-            ? "cursor-pointer hover:bg-foreground/[0.08] dark:hover:bg-foreground/[0.12]"
-            : "cursor-default"
+            ? "cursor-pointer"
+            : "cursor-default opacity-60"
         }`}
         title={!hasContent ? "Verse preview not available" : undefined}
       >
@@ -1136,22 +1129,22 @@ function CitationWithTooltip({
           }}
         >
           <div
-            className={`relative bg-white dark:bg-zinc-900 shadow-2xl overflow-hidden ${
+            className={`relative bg-background shadow-2xl overflow-hidden ${
               isMobile 
-                ? "w-full max-h-[85vh] border-t border-zinc-200 dark:border-zinc-700/50 rounded-t-2xl animate-slide-up" 
-                : "w-full max-w-lg max-h-[80vh] border border-zinc-200 dark:border-zinc-700/50 rounded-2xl animate-fade-in"
+                ? "w-full max-h-[85vh] border-t border-border/50 rounded-t-2xl animate-slide-up"
+                : "w-full max-w-lg max-h-[80vh] border border-border/50 rounded-2xl animate-fade-in"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header with citation and close button */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
-              <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">{citation}</span>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="text-sm font-mono text-muted-foreground">{citation}</span>
               <button
                 onClick={handleClose}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-accent hover:bg-accent/70 transition-colors"
               >
                 <svg
-                  className="w-4 h-4 text-zinc-500 dark:text-zinc-400"
+                  className="w-4 h-4 text-muted"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -1809,7 +1802,7 @@ function AyahExplorer() {
         {/* Surah Header */}
         {currentSurah && !isLoadingVerses && (
           <div className="mb-8 text-center animate-fade-in">
-            <h1 className="text-3xl font-semibold text-foreground mb-2">
+            <h1 className="font-display text-4xl font-light text-foreground mb-2" style={{ letterSpacing: '0.04em' }}>
               {currentSurah.name}
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -2084,7 +2077,7 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
               {/* Context Summary */}
               {context.context_summary && (
                 <div>
-                  <h3 className="text-sm font-medium text-foreground mb-3">
+                  <h3 className="font-display text-base font-medium text-foreground mb-3 tracking-wide">
                     Context
                   </h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">
@@ -2096,7 +2089,7 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
               {/* Asbab al-Nuzul */}
               {context.asbab_summary && (
                 <div>
-                  <h3 className="text-sm font-medium text-foreground mb-3">
+                  <h3 className="font-display text-base font-medium text-foreground mb-3 tracking-wide">
                     Occasion of Revelation
                   </h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">
