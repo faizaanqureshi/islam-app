@@ -1685,6 +1685,12 @@ function AyahExplorer() {
   } | null>(null);
   const [urlKey, setUrlKey] = useState(0); // Track URL changes
 
+  // Safh (page) mode
+  const [viewMode, setViewMode] = useState<'surah' | 'safh'>('surah');
+  const [pageMap, setPageMap] = useState<Record<number, number>>({}); // ayah → mushafPage
+  const [currentSafePage, setCurrentSafePage] = useState<number>(0);
+  const [isLoadingPageMap, setIsLoadingPageMap] = useState(false);
+
   // Audio state
   const [playingAyah, setPlayingAyah] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1696,6 +1702,7 @@ function AyahExplorer() {
   const playingModeRef = useRef<'single' | 'surah'>('surah');
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
   const verseElemRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const touchStartXRef = useRef<number | null>(null);
 
   const RECITERS = [
     { id: 'Alafasy_128kbps', name: 'Mishary Al Afasy' },
@@ -1809,6 +1816,39 @@ function AyahExplorer() {
 
   // Cleanup on unmount
   useEffect(() => () => stopAudio(), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch page map whenever safh mode is active and surah changes.
+  // Merged into one effect to avoid the race where the reset effect fires first
+  // and the old non-empty pageMap blocks the fetch in a separate effect.
+  useEffect(() => {
+    if (viewMode !== 'safh') return;
+    let cancelled = false;
+    setPageMap({});
+    setCurrentSafePage(0);
+    setIsLoadingPageMap(true);
+    fetch(`/api/quran/page-info/${selectedSurah}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (data.success) {
+          setPageMap(data.data);
+          const firstPage = Math.min(...Object.values(data.data as Record<number, number>));
+          setCurrentSafePage(firstPage);
+        }
+      })
+      .catch(console.error)
+      .finally(() => { if (!cancelled) setIsLoadingPageMap(false); });
+    return () => { cancelled = true; };
+  }, [viewMode, selectedSurah]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Computed values for safh mode
+  const safhePages: number[] = Object.keys(pageMap).length
+    ? [...new Set(Object.values(pageMap))].sort((a, b) => a - b)
+    : [];
+  const currentSafePageVerses = verses.filter(v => pageMap[v.ayah] === currentSafePage);
+  const safePageIndex = safhePages.indexOf(currentSafePage);
+  const prevSafePage = safePageIndex > 0 ? safhePages[safePageIndex - 1] : null;
+  const nextSafePage = safePageIndex < safhePages.length - 1 ? safhePages[safePageIndex + 1] : null;
 
   const stopAudio = () => {
     if (audioRef.current) {
@@ -2041,6 +2081,22 @@ function AyahExplorer() {
                   </svg>
                 </button>
               )}
+
+              {/* View mode toggle */}
+              <div className="flex overflow-hidden rounded-lg border border-border/60 text-[12px] ml-1">
+                {(['surah', 'safh'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className="px-3 py-1.5 transition-colors capitalize"
+                    style={viewMode === mode
+                      ? { background: 'var(--gold-muted)', color: 'var(--gold)' }
+                      : { color: 'var(--muted-foreground)' }}
+                  >
+                    {mode === 'surah' ? 'Surah' : 'Safh'}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="mt-5 w-16 h-[1px] bg-border/50 mx-auto" />
@@ -2058,8 +2114,8 @@ function AyahExplorer() {
           </div>
         )}
 
-        {/* Verses */}
-        {!isLoadingVerses && (
+        {/* Verses — Surah mode */}
+        {!isLoadingVerses && viewMode === 'surah' && (
           <div className="space-y-8 animate-fade-in">
             {verses.map((verse) => (
               <div
@@ -2130,6 +2186,174 @@ function AyahExplorer() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Safh (page) mode */}
+        {!isLoadingVerses && viewMode === 'safh' && (
+          <div className="animate-fade-in">
+            {isLoadingPageMap ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              </div>
+            ) : safhePages.length === 0 ? (
+              <p className="text-center text-muted-foreground py-20 text-sm">Unable to load page data.</p>
+            ) : (
+              <>
+                {/* Outer page nav — above the book */}
+                <div className="flex items-center justify-between mb-5">
+                  <button
+                    onClick={() => prevSafePage && setCurrentSafePage(prevSafePage)}
+                    disabled={!prevSafePage}
+                    className="flex items-center gap-1.5 text-[12px] text-muted-foreground transition-opacity hover:opacity-70 disabled:opacity-20 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 12H5M12 5l-7 7 7 7"/>
+                    </svg>
+                    <span className="hidden sm:inline">Prev</span>
+                  </button>
+                  <p className="text-[11px] uppercase tracking-widest text-muted">
+                    {safePageIndex + 1} / {safhePages.length} pages
+                  </p>
+                  <button
+                    onClick={() => nextSafePage && setCurrentSafePage(nextSafePage)}
+                    disabled={!nextSafePage}
+                    className="flex items-center gap-1.5 text-[12px] text-muted-foreground transition-opacity hover:opacity-70 disabled:opacity-20 disabled:cursor-not-allowed"
+                  >
+                    <span className="hidden sm:inline">Next</span>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12h14M12 5l7 7-7 7"/>
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Book page — swipeable */}
+                <div
+                  onTouchStart={(e) => { touchStartXRef.current = e.touches[0].clientX; }}
+                  onTouchEnd={(e) => {
+                    if (touchStartXRef.current === null) return;
+                    const delta = e.changedTouches[0].clientX - touchStartXRef.current;
+                    touchStartXRef.current = null;
+                    if (Math.abs(delta) < 60) return;
+                    if (delta < 0 && nextSafePage) setCurrentSafePage(nextSafePage);
+                    else if (delta > 0 && prevSafePage) setCurrentSafePage(prevSafePage);
+                  }}
+                  style={{
+                    position: 'relative',
+                    border: '1px solid var(--gold-border)',
+                    borderRadius: '4px',
+                    padding: '2px',
+                    boxShadow: '0 4px 32px rgba(0,0,0,0.18), 0 1px 6px rgba(0,0,0,0.12)',
+                    touchAction: 'pan-y',
+                  }}
+                >
+                  {/* Corner ornaments */}
+                  {[
+                    { top: -1, left: -1, borderTop: '2px solid var(--gold)', borderLeft: '2px solid var(--gold)', borderRadius: '3px 0 0 0' },
+                    { top: -1, right: -1, borderTop: '2px solid var(--gold)', borderRight: '2px solid var(--gold)', borderRadius: '0 3px 0 0' },
+                    { bottom: -1, left: -1, borderBottom: '2px solid var(--gold)', borderLeft: '2px solid var(--gold)', borderRadius: '0 0 0 3px' },
+                    { bottom: -1, right: -1, borderBottom: '2px solid var(--gold)', borderRight: '2px solid var(--gold)', borderRadius: '0 0 3px 0' },
+                  ].map((s, i) => (
+                    <span key={i} style={{ position: 'absolute', width: 20, height: 20, ...s }} />
+                  ))}
+
+                  {/* Inner page */}
+                  <div
+                    style={{
+                      border: '1px solid var(--gold-border)',
+                      borderRadius: '3px',
+                      padding: '2rem 1.75rem',
+                    }}
+                  >
+                    {/* Surah name header */}
+                    <div className="text-center mb-6">
+                      <p className="font-arabic text-xl" style={{ color: 'var(--gold)', opacity: 0.85 }}>
+                        {currentSurah?.name}
+                      </p>
+                      <div className="mt-2 mx-auto w-24 h-[1px]" style={{ background: 'linear-gradient(to right, transparent, var(--gold-border), transparent)' }} />
+                    </div>
+
+                    {/* Continuous Arabic text */}
+                    <p
+                      className="font-arabic text-2xl sm:text-[1.6rem] text-right"
+                      dir="rtl"
+                      style={{ lineHeight: '3' }}
+                    >
+                      {currentSafePageVerses.map((verse) => (
+                        <span
+                          key={verse.ayah}
+                          ref={(el) => { verseElemRefs.current[verse.ayah] = el as unknown as HTMLDivElement; }}
+                          style={{
+                            color: playingAyah === verse.ayah ? 'var(--gold)' : 'var(--foreground)',
+                            transition: 'color 0.3s ease',
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setSelectedVerse({ surah: selectedSurah, ayah: verse.ayah, arabic: verse.arabic, english: verse.english })}
+                        >
+                          {verse.arabic}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleVersePlay(verse.ayah); }}
+                            title={`Play verse ${verse.ayah}`}
+                            className="inline-flex items-center justify-center align-middle mx-1.5 transition-all duration-200"
+                            style={{
+                              width: '1.4rem',
+                              height: '1.4rem',
+                              borderRadius: '50%',
+                              fontSize: '0.58rem',
+                              fontFamily: 'sans-serif',
+                              background: playingAyah === verse.ayah ? 'var(--gold)' : 'var(--gold-muted)',
+                              color: playingAyah === verse.ayah ? 'var(--background)' : 'var(--gold)',
+                              border: '1px solid var(--gold-border)',
+                              verticalAlign: 'middle',
+                              lineHeight: 1,
+                            }}
+                          >
+                            {playingAyah === verse.ayah && isPlaying ? (
+                              <span style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+                                <span style={{ width: '2px', height: '7px', borderRadius: '1px', background: 'currentColor', display: 'block' }} />
+                                <span style={{ width: '2px', height: '7px', borderRadius: '1px', background: 'currentColor', display: 'block' }} />
+                              </span>
+                            ) : verse.ayah}
+                          </button>
+                        </span>
+                      ))}
+                    </p>
+
+                    {/* Translations */}
+                    <div className="mt-8 pt-6 space-y-3" style={{ borderTop: '1px solid var(--gold-border)' }}>
+                      {currentSafePageVerses.map((verse) => (
+                        <div key={verse.ayah} className="flex items-start gap-3">
+                          <span className="shrink-0 text-[11px] font-mono tabular-nums mt-0.5 w-5 text-right" style={{ color: 'var(--gold)' }}>
+                            {verse.ayah}
+                          </span>
+                          <p className="text-[13px] leading-relaxed text-muted-foreground flex-1">
+                            {verse.english}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Page number footer */}
+                    <div className="mt-8 pt-4 flex items-center justify-center gap-4" style={{ borderTop: '1px solid var(--gold-border)' }}>
+                      <div className="h-[1px] flex-1" style={{ background: 'linear-gradient(to right, transparent, var(--gold-border))' }} />
+                      <span className="font-arabic text-base" style={{ color: 'var(--gold)', opacity: 0.7 }}>
+                        {currentSafePage}
+                      </span>
+                      <div className="h-[1px] flex-1" style={{ background: 'linear-gradient(to left, transparent, var(--gold-border))' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Swipe hint — shown briefly, then fades */}
+                <p className="text-center text-[11px] text-muted-foreground/40 mt-4">
+                  Swipe left / right to turn pages
+                </p>
+              </>
+            )}
           </div>
         )}
 

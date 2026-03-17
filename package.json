@@ -10,7 +10,8 @@
     "ingest:quran": "tsx scripts/ingest-quran.ts",
     "ingest:quran:english": "tsx scripts/ingest-quran-english.ts",
     "ingest:all": "pnpm ingest:quran && pnpm ingest:quran:english",
-    "process-tafsir": "tsx scripts/process-tafsir.ts"
+    "process-tafsir": "tsx scripts/process-tafsir.ts",
+    "fetch:page-numbers": "tsx scripts/fetch-page-numbers.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.0",
