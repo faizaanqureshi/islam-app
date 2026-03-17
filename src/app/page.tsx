@@ -1703,6 +1703,10 @@ function AyahExplorer() {
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
   const verseElemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const safhPageRef = useRef<HTMLDivElement | null>(null);
+  const timeUpdateListenerRef = useRef<(() => void) | null>(null);
+  const fadeInIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const RECITERS = [
     { id: 'Alafasy_128kbps', name: 'Mishary Al Afasy' },
@@ -1814,6 +1818,21 @@ function AyahExplorer() {
   // Stop audio when surah changes
   useEffect(() => { stopAudio(); }, [selectedSurah]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Attach non-passive touchmove to the safh page so e.preventDefault() works,
+  // which stops the browser eating horizontal swipes as scroll events
+  useEffect(() => {
+    const el = safhPageRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+      const dx = Math.abs(e.touches[0].clientX - touchStartXRef.current);
+      const dy = Math.abs(e.touches[0].clientY - touchStartYRef.current);
+      if (dx > dy && dx > 8) e.preventDefault();
+    };
+    el.addEventListener('touchmove', onMove, { passive: false });
+    return () => el.removeEventListener('touchmove', onMove);
+  }); // re-runs every render so the ref stays current
+
   // Cleanup on unmount
   useEffect(() => () => stopAudio(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1851,8 +1870,17 @@ function AyahExplorer() {
   const nextSafePage = safePageIndex < safhePages.length - 1 ? safhePages[safePageIndex + 1] : null;
 
   const stopAudio = () => {
+    if (fadeInIntervalRef.current) {
+      clearInterval(fadeInIntervalRef.current);
+      fadeInIntervalRef.current = null;
+    }
     if (audioRef.current) {
+      if (timeUpdateListenerRef.current) {
+        audioRef.current.removeEventListener('timeupdate', timeUpdateListenerRef.current);
+        timeUpdateListenerRef.current = null;
+      }
       audioRef.current.pause();
+      audioRef.current.volume = 1;
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
       audioRef.current = null;
@@ -1863,7 +1891,16 @@ function AyahExplorer() {
   };
 
   const startPlaying = (ayahNumber: number, mode: 'single' | 'surah', prefetched?: HTMLAudioElement) => {
+    // Clear any in-flight fade-in from the previous verse
+    if (fadeInIntervalRef.current) {
+      clearInterval(fadeInIntervalRef.current);
+      fadeInIntervalRef.current = null;
+    }
     if (audioRef.current) {
+      if (timeUpdateListenerRef.current) {
+        audioRef.current.removeEventListener('timeupdate', timeUpdateListenerRef.current);
+        timeUpdateListenerRef.current = null;
+      }
       audioRef.current.pause();
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
@@ -1902,9 +1939,21 @@ function AyahExplorer() {
       }
     };
     audio.addEventListener('timeupdate', handleTimeUpdate);
+    timeUpdateListenerRef.current = handleTimeUpdate;
+
+    const cleanupAudio = () => {
+      if (timeUpdateListenerRef.current) {
+        audio.removeEventListener('timeupdate', timeUpdateListenerRef.current);
+        timeUpdateListenerRef.current = null;
+      }
+      if (fadeInIntervalRef.current) {
+        clearInterval(fadeInIntervalRef.current);
+        fadeInIntervalRef.current = null;
+      }
+    };
 
     audio.onended = () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      cleanupAudio();
       if (playingModeRef.current === 'single') {
         setIsPlaying(false);
         setPlayingAyah(null);
@@ -1929,7 +1978,7 @@ function AyahExplorer() {
     };
 
     audio.onerror = () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      cleanupAudio();
       setIsPlaying(false);
       setPlayingAyah(null);
       audioRef.current = null;
@@ -1941,11 +1990,13 @@ function AyahExplorer() {
       audio.volume = 0;
       audio.play().then(() => {
         let vol = 0;
-        const fadeIn = setInterval(() => {
+        fadeInIntervalRef.current = setInterval(() => {
           vol = Math.min(1, vol + 0.25);
-          // Guard: only adjust if this audio is still active
           if (audioRef.current === audio) audio.volume = vol;
-          if (vol >= 1) clearInterval(fadeIn);
+          if (vol >= 1) {
+            clearInterval(fadeInIntervalRef.current!);
+            fadeInIntervalRef.current = null;
+          }
         }, 20); // ~80 ms ramp
       }).catch(() => {
         setIsPlaying(false);
@@ -1966,6 +2017,7 @@ function AyahExplorer() {
       audioRef.current?.pause();
       setIsPlaying(false);
     } else if (playingAyah === ayahNumber && !isPlaying) {
+      if (audioRef.current) audioRef.current.volume = 1;
       audioRef.current?.play().catch(() => {});
       setIsPlaying(true);
     } else {
@@ -1978,6 +2030,7 @@ function AyahExplorer() {
       audioRef.current?.pause();
       setIsPlaying(false);
     } else if (playingAyah !== null && audioRef.current) {
+      audioRef.current.volume = 1;
       audioRef.current.play().catch(() => {});
       setIsPlaying(true);
     } else {
@@ -2214,7 +2267,7 @@ function AyahExplorer() {
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M19 12H5M12 5l-7 7 7 7"/>
                     </svg>
-                    <span className="hidden sm:inline">Prev</span>
+                    <span className="hidden sm:inline">Next</span>
                   </button>
                   <p className="text-[11px] uppercase tracking-widest text-muted">
                     {safePageIndex + 1} / {safhePages.length} pages
@@ -2224,7 +2277,7 @@ function AyahExplorer() {
                     disabled={!nextSafePage}
                     className="flex items-center gap-1.5 text-[12px] text-muted-foreground transition-opacity hover:opacity-70 disabled:opacity-20 disabled:cursor-not-allowed"
                   >
-                    <span className="hidden sm:inline">Next</span>
+                    <span className="hidden sm:inline">Prev</span>
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M5 12h14M12 5l7 7-7 7"/>
                     </svg>
@@ -2233,32 +2286,37 @@ function AyahExplorer() {
 
                 {/* Book page — swipeable */}
                 <div
-                  onTouchStart={(e) => { touchStartXRef.current = e.touches[0].clientX; }}
+                  ref={safhPageRef}
+                  onTouchStart={(e) => {
+                    touchStartXRef.current = e.touches[0].clientX;
+                    touchStartYRef.current = e.touches[0].clientY;
+                  }}
                   onTouchEnd={(e) => {
                     if (touchStartXRef.current === null) return;
                     const delta = e.changedTouches[0].clientX - touchStartXRef.current;
                     touchStartXRef.current = null;
-                    if (Math.abs(delta) < 60) return;
-                    if (delta < 0 && nextSafePage) setCurrentSafePage(nextSafePage);
-                    else if (delta > 0 && prevSafePage) setCurrentSafePage(prevSafePage);
+                    touchStartYRef.current = null;
+                    if (Math.abs(delta) < 50) return;
+                    // Left-to-right (delta > 0) = next page; right-to-left (delta < 0) = prev page
+                    if (delta > 0 && nextSafePage) setCurrentSafePage(nextSafePage);
+                    else if (delta < 0 && prevSafePage) setCurrentSafePage(prevSafePage);
                   }}
                   style={{
                     position: 'relative',
                     border: '1px solid var(--gold-border)',
                     borderRadius: '4px',
-                    padding: '2px',
-                    boxShadow: '0 4px 32px rgba(0,0,0,0.18), 0 1px 6px rgba(0,0,0,0.12)',
-                    touchAction: 'pan-y',
+                    padding: '1px',
+                    boxShadow: '0 2px 16px rgba(0,0,0,0.12)',
                   }}
                 >
                   {/* Corner ornaments */}
                   {[
-                    { top: -1, left: -1, borderTop: '2px solid var(--gold)', borderLeft: '2px solid var(--gold)', borderRadius: '3px 0 0 0' },
-                    { top: -1, right: -1, borderTop: '2px solid var(--gold)', borderRight: '2px solid var(--gold)', borderRadius: '0 3px 0 0' },
-                    { bottom: -1, left: -1, borderBottom: '2px solid var(--gold)', borderLeft: '2px solid var(--gold)', borderRadius: '0 0 0 3px' },
-                    { bottom: -1, right: -1, borderBottom: '2px solid var(--gold)', borderRight: '2px solid var(--gold)', borderRadius: '0 0 3px 0' },
+                    { top: -1, left: -1, borderTop: '1.5px solid var(--gold)', borderLeft: '1.5px solid var(--gold)', borderRadius: '3px 0 0 0' },
+                    { top: -1, right: -1, borderTop: '1.5px solid var(--gold)', borderRight: '1.5px solid var(--gold)', borderRadius: '0 3px 0 0' },
+                    { bottom: -1, left: -1, borderBottom: '1.5px solid var(--gold)', borderLeft: '1.5px solid var(--gold)', borderRadius: '0 0 0 3px' },
+                    { bottom: -1, right: -1, borderBottom: '1.5px solid var(--gold)', borderRight: '1.5px solid var(--gold)', borderRadius: '0 0 3px 0' },
                   ].map((s, i) => (
-                    <span key={i} style={{ position: 'absolute', width: 20, height: 20, ...s }} />
+                    <span key={i} style={{ position: 'absolute', width: 14, height: 14, ...s }} />
                   ))}
 
                   {/* Inner page */}
@@ -2266,22 +2324,14 @@ function AyahExplorer() {
                     style={{
                       border: '1px solid var(--gold-border)',
                       borderRadius: '3px',
-                      padding: '2rem 1.75rem',
+                      padding: '1rem 1rem',
                     }}
                   >
-                    {/* Surah name header */}
-                    <div className="text-center mb-6">
-                      <p className="font-arabic text-xl" style={{ color: 'var(--gold)', opacity: 0.85 }}>
-                        {currentSurah?.name}
-                      </p>
-                      <div className="mt-2 mx-auto w-24 h-[1px]" style={{ background: 'linear-gradient(to right, transparent, var(--gold-border), transparent)' }} />
-                    </div>
-
                     {/* Continuous Arabic text */}
                     <p
-                      className="font-arabic text-2xl sm:text-[1.6rem] text-right"
+                      className="font-arabic text-lg sm:text-xl md:text-2xl text-right"
                       dir="rtl"
-                      style={{ lineHeight: '3' }}
+                      style={{ lineHeight: '2.8' }}
                     >
                       {currentSafePageVerses.map((verse) => (
                         <span
