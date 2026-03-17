@@ -1685,6 +1685,23 @@ function AyahExplorer() {
   } | null>(null);
   const [urlKey, setUrlKey] = useState(0); // Track URL changes
 
+  // Audio state
+  const [playingAyah, setPlayingAyah] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [reciter, setReciter] = useState('Alafasy_128kbps');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const versesRef = useRef<Verse[]>([]);
+  const reciterRef = useRef('Alafasy_128kbps');
+  const selectedSurahRef = useRef(1);
+  const playingModeRef = useRef<'single' | 'surah'>('surah');
+  const nextAudioRef = useRef<HTMLAudioElement | null>(null);
+  const verseElemRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  const RECITERS = [
+    { id: 'Alafasy_128kbps', name: 'Mishary Al Afasy' },
+    { id: 'Yasser_Ad-Dussary_128kbps', name: 'Yasser Al Dosari' },
+  ];
+
   // Listen for URL changes (popstate for back/forward, and manual checks)
   useEffect(() => {
     const handleUrlChange = () => {
@@ -1775,6 +1792,160 @@ function AyahExplorer() {
     fetchVerses();
   }, [selectedSurah]);
 
+  // Keep refs in sync with state
+  useEffect(() => { versesRef.current = verses; }, [verses]);
+  useEffect(() => { reciterRef.current = reciter; }, [reciter]);
+  useEffect(() => { selectedSurahRef.current = selectedSurah; }, [selectedSurah]);
+
+  // Auto-scroll to the currently playing verse
+  useEffect(() => {
+    if (playingAyah !== null) {
+      verseElemRefs.current[playingAyah]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [playingAyah]);
+
+  // Stop audio when surah changes
+  useEffect(() => { stopAudio(); }, [selectedSurah]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup on unmount
+  useEffect(() => () => stopAudio(), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current = null;
+    }
+    nextAudioRef.current = null;
+    setIsPlaying(false);
+    setPlayingAyah(null);
+  };
+
+  const startPlaying = (ayahNumber: number, mode: 'single' | 'surah', prefetched?: HTMLAudioElement) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+    }
+    setPlayingAyah(ayahNumber);
+    setIsPlaying(true);
+    playingModeRef.current = mode;
+
+    const s = String(selectedSurahRef.current).padStart(3, '0');
+    const a = String(ayahNumber).padStart(3, '0');
+    const url = `https://everyayah.com/data/${reciterRef.current}/${s}${a}.mp3`;
+    const audio = prefetched ?? new Audio(url);
+    audioRef.current = audio;
+
+    // Immediately start buffering the next verse so onended fires with it ready
+    if (mode === 'surah') {
+      const vList = versesRef.current;
+      const idx = vList.findIndex((v) => v.ayah === ayahNumber);
+      if (idx >= 0 && idx < vList.length - 1) {
+        const ns = String(selectedSurahRef.current).padStart(3, '0');
+        const na = String(vList[idx + 1].ayah).padStart(3, '0');
+        const next = new Audio(`https://everyayah.com/data/${reciterRef.current}/${ns}${na}.mp3`);
+        next.preload = 'auto';
+        nextAudioRef.current = next;
+      } else {
+        nextAudioRef.current = null;
+      }
+    }
+
+    // Fade out the last 0.15 s so verses never cut off abruptly
+    const handleTimeUpdate = () => {
+      if (!audio.duration || audio.paused) return;
+      const remaining = audio.duration - audio.currentTime;
+      if (remaining <= 0.15) {
+        audio.volume = Math.max(0, remaining / 0.15);
+      }
+    };
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+
+    audio.onended = () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      if (playingModeRef.current === 'single') {
+        setIsPlaying(false);
+        setPlayingAyah(null);
+        audioRef.current = null;
+      } else {
+        const vList = versesRef.current;
+        const idx = vList.findIndex((v) => v.ayah === ayahNumber);
+        if (idx >= 0 && idx < vList.length - 1) {
+          const buffered = nextAudioRef.current;
+          nextAudioRef.current = null;
+          // Minimal gap — just enough to avoid a hard splice
+          if (audioRef.current === audio) {
+            startPlaying(vList[idx + 1].ayah, 'surah', buffered ?? undefined);
+          }
+        } else {
+          setIsPlaying(false);
+          setPlayingAyah(null);
+          audioRef.current = null;
+          nextAudioRef.current = null;
+        }
+      }
+    };
+
+    audio.onerror = () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      setIsPlaying(false);
+      setPlayingAyah(null);
+      audioRef.current = null;
+      nextAudioRef.current = null;
+    };
+
+    // Fade in for surah mode so each verse enters smoothly
+    if (mode === 'surah') {
+      audio.volume = 0;
+      audio.play().then(() => {
+        let vol = 0;
+        const fadeIn = setInterval(() => {
+          vol = Math.min(1, vol + 0.25);
+          // Guard: only adjust if this audio is still active
+          if (audioRef.current === audio) audio.volume = vol;
+          if (vol >= 1) clearInterval(fadeIn);
+        }, 20); // ~80 ms ramp
+      }).catch(() => {
+        setIsPlaying(false);
+        setPlayingAyah(null);
+        audioRef.current = null;
+      });
+    } else {
+      audio.play().catch(() => {
+        setIsPlaying(false);
+        setPlayingAyah(null);
+        audioRef.current = null;
+      });
+    }
+  };
+
+  const handleVersePlay = (ayahNumber: number) => {
+    if (playingAyah === ayahNumber && isPlaying) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+    } else if (playingAyah === ayahNumber && !isPlaying) {
+      audioRef.current?.play().catch(() => {});
+      setIsPlaying(true);
+    } else {
+      startPlaying(ayahNumber, 'single');
+    }
+  };
+
+  const handleSurahPlay = () => {
+    if (isPlaying) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+    } else if (playingAyah !== null && audioRef.current) {
+      audioRef.current.play().catch(() => {});
+      setIsPlaying(true);
+    } else {
+      const vList = versesRef.current;
+      if (vList.length > 0) startPlaying(vList[0].ayah, 'surah');
+    }
+  };
+
   const currentSurah = surahs.find((s) => s.number === selectedSurah);
 
   return (
@@ -1802,13 +1973,77 @@ function AyahExplorer() {
         {/* Surah Header */}
         {currentSurah && !isLoadingVerses && (
           <div className="mb-8 text-center animate-fade-in">
-            <h1 className="font-display text-4xl font-light text-foreground mb-2" style={{ letterSpacing: '0.04em' }}>
+            <h1 className="font-display text-4xl font-light text-foreground mb-1" style={{ letterSpacing: '0.04em' }}>
               {currentSurah.name}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground mb-5">
               {currentSurah.transliteration}
             </p>
-            <div className="mt-4 w-16 h-[1px] bg-border/50 mx-auto" />
+
+            {/* Audio controls */}
+            <div className="flex items-center justify-center gap-2.5 flex-wrap">
+              {/* Play / Pause surah */}
+              <button
+                onClick={handleSurahPlay}
+                className="flex items-center gap-2 px-4 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200"
+                style={{ background: 'var(--gold-muted)', border: '1px solid var(--gold-border)', color: 'var(--gold)' }}
+              >
+                {isPlaying ? (
+                  <>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                      <rect x="5" y="4" width="4" height="16" rx="1"/>
+                      <rect x="15" y="4" width="4" height="16" rx="1"/>
+                    </svg>
+                    Pause
+                  </>
+                ) : playingAyah !== null ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                    Play Surah
+                  </>
+                )}
+              </button>
+
+              {/* Reciter selector */}
+              <div className="flex overflow-hidden rounded-lg border border-border/60 text-[12px]">
+                {RECITERS.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => {
+                      setReciter(r.id);
+                      reciterRef.current = r.id;
+                      if (playingAyah !== null) stopAudio();
+                    }}
+                    className="px-3 py-1.5 transition-colors"
+                    style={reciter === r.id
+                      ? { background: 'var(--gold-muted)', color: 'var(--gold)' }
+                      : { color: 'var(--muted-foreground)' }}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Stop button — only when something is loaded */}
+              {playingAyah !== null && (
+                <button
+                  onClick={stopAudio}
+                  title="Stop playback"
+                  className="p-1.5 rounded-lg transition-colors text-muted-foreground/50 hover:text-muted-foreground"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            <div className="mt-5 w-16 h-[1px] bg-border/50 mx-auto" />
           </div>
         )}
 
@@ -1827,18 +2062,52 @@ function AyahExplorer() {
         {!isLoadingVerses && (
           <div className="space-y-8 animate-fade-in">
             {verses.map((verse) => (
-              <div key={verse.ayah} className="group relative" data-ayah={verse.ayah}>
-                {/* Ayah Number Badge */}
+              <div
+                key={verse.ayah}
+                ref={(el) => { verseElemRefs.current[verse.ayah] = el; }}
+                className="group relative transition-all duration-400"
+                style={{
+                  paddingLeft: '1rem',
+                  marginLeft: '-1rem',
+                  borderLeft: `2px solid ${playingAyah === verse.ayah ? 'var(--gold)' : 'transparent'}`,
+                  transition: 'border-color 0.4s ease',
+                }}
+                data-ayah={verse.ayah}
+              >
+                {/* Ayah badge — click to play/pause this verse */}
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-foreground/[0.04] dark:bg-foreground/[0.06] border border-border/50">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {verse.ayah}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => handleVersePlay(verse.ayah)}
+                    title={`Play verse ${verse.ayah}`}
+                    className="relative flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-200"
+                    style={
+                      playingAyah === verse.ayah
+                        ? { background: 'var(--gold-muted)', borderColor: 'var(--gold-border)' }
+                        : undefined
+                    }
+                    {...(playingAyah !== verse.ayah && {
+                      className: 'relative flex items-center justify-center w-8 h-8 rounded-full border border-border/50 bg-foreground/[0.04] dark:bg-foreground/[0.06] transition-all duration-200 hover:border-[var(--gold)]/40',
+                    })}
+                  >
+                    {playingAyah === verse.ayah && isPlaying ? (
+                      <div className="flex gap-[3px]">
+                        <div className="w-[3px] h-3 rounded-full" style={{ background: 'var(--gold)' }} />
+                        <div className="w-[3px] h-3 rounded-full" style={{ background: 'var(--gold)' }} />
+                      </div>
+                    ) : playingAyah === verse.ayah && !isPlaying ? (
+                      <svg className="w-3 h-3 ml-0.5" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--gold)' }}>
+                        <polygon points="5,3 19,12 5,21" />
+                      </svg>
+                    ) : (
+                      <span className="text-xs font-medium text-muted-foreground transition-opacity group-hover:opacity-70">
+                        {verse.ayah}
+                      </span>
+                    )}
+                  </button>
                   <div className="flex-1 h-[1px] bg-border/30" />
                 </div>
 
-                {/* Clickable verse content */}
+                {/* Verse text — click to open detail modal */}
                 <div
                   className="cursor-pointer transition-all duration-200 hover:opacity-70"
                   onClick={() =>
@@ -1850,17 +2119,11 @@ function AyahExplorer() {
                     })
                   }
                 >
-                  {/* Arabic Text */}
                   {verse.arabic && (
-                    <p
-                      className="text-right font-arabic text-2xl leading-loose text-foreground mb-6"
-                      dir="rtl"
-                    >
+                    <p className="text-right font-arabic text-2xl leading-loose text-foreground mb-6" dir="rtl">
                       {verse.arabic}
                     </p>
                   )}
-
-                  {/* English Translation */}
                   <p className="text-[15px] leading-relaxed text-muted-foreground">
                     {verse.english}
                   </p>
