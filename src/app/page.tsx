@@ -2132,6 +2132,52 @@ function AyahExplorer() {
             ))}
           </div>
         )}
+
+        {/* Surah navigation */}
+        {!isLoadingVerses && surahs.length > 0 && (
+          <div className="flex items-center justify-between mt-16 pt-8 border-t border-border/40">
+            {selectedSurah > 1 ? (
+              <button
+                onClick={() => { stopAudio(); setSelectedSurah(selectedSurah - 1); }}
+                className="group flex items-center gap-3 text-left transition-opacity hover:opacity-70"
+              >
+                <svg className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 12H5M12 5l-7 7 7 7"/>
+                </svg>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted mb-0.5">Previous</p>
+                  <p className="font-display text-base font-light text-foreground" style={{ letterSpacing: '0.03em' }}>
+                    {surahs.find(s => s.number === selectedSurah - 1)?.name}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {surahs.find(s => s.number === selectedSurah - 1)?.transliteration}
+                  </p>
+                </div>
+              </button>
+            ) : <div />}
+
+            {selectedSurah < 114 ? (
+              <button
+                onClick={() => { stopAudio(); setSelectedSurah(selectedSurah + 1); }}
+                className="group flex items-center gap-3 text-right transition-opacity hover:opacity-70"
+              >
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted mb-0.5">Next</p>
+                  <p className="font-display text-base font-light text-foreground" style={{ letterSpacing: '0.03em' }}>
+                    {surahs.find(s => s.number === selectedSurah + 1)?.name}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {surahs.find(s => s.number === selectedSurah + 1)?.transliteration}
+                  </p>
+                </div>
+                <svg className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </button>
+            ) : <div />}
+          </div>
+        )}
+
         </div>
       </div>
 
