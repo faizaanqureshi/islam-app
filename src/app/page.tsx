@@ -1717,6 +1717,8 @@ function AyahExplorer() {
   const touchStartYRef = useRef<number | null>(null);
   const safhPageRef = useRef<HTMLDivElement | null>(null);
   const timeUpdateListenerRef = useRef<(() => void) | null>(null);
+  const pageMapRef = useRef<Record<number, number>>({});
+  const currentSafePageRef = useRef<number>(0);
   const fadeInIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const RECITERS = [
@@ -1816,6 +1818,8 @@ function AyahExplorer() {
 
   // Keep refs in sync with state
   useEffect(() => { versesRef.current = verses; }, [verses]);
+  useEffect(() => { pageMapRef.current = pageMap; }, [pageMap]);
+  useEffect(() => { currentSafePageRef.current = currentSafePage; }, [currentSafePage]);
   useEffect(() => { reciterRef.current = reciter; }, [reciter]);
   useEffect(() => { selectedSurahRef.current = selectedSurah; }, [selectedSurah]);
 
@@ -1825,6 +1829,15 @@ function AyahExplorer() {
       verseElemRefs.current[playingAyah]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [playingAyah]);
+
+  // In safh mode, auto-flip to the page of the currently playing ayah
+  useEffect(() => {
+    if (viewMode !== 'safh' || playingAyah === null) return;
+    const page = pageMapRef.current[playingAyah];
+    if (page && page !== currentSafePageRef.current) {
+      setCurrentSafePage(page);
+    }
+  }, [playingAyah, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop audio when surah changes
   useEffect(() => { stopAudio(); }, [selectedSurah]); // eslint-disable-line react-hooks/exhaustive-deps
