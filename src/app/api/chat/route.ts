@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { retrievePairedContext, rewriteQueryWithContext, expandShortQuery } from "@/lib/retrieval";
 import { createStreamingResponse } from "@/lib/streaming";
+
 import type { ChatAPIResponse, ChatRequest, ConversationMessage } from "@/lib/types";
 
 // Rate limiting placeholder

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { PairedVerse, ExtendedVerse, VerseContext } from "../types";
+import { API_BASE } from "../../lib/api";
 
 export function CitationWithTooltip({
   citation,
@@ -52,7 +53,7 @@ export function CitationWithTooltip({
         });
       } else {
         try {
-          const res = await fetch(`/api/quran/ayah?surah=${ref.surah}&ayah=${ref.ayah}`);
+          const res = await fetch(`${API_BASE}/api/quran/ayah?surah=${ref.surah}&ayah=${ref.ayah}`);
           if (res.ok) {
             const data = await res.json();
             if (data.success && data.data) {
@@ -84,7 +85,7 @@ export function CitationWithTooltip({
 
     setLoadingContext(true);
     try {
-      const res = await fetch(`/api/quran/context?surah=${currentVerse.surah}&ayah=${currentVerse.ayah}`);
+      const res = await fetch(`${API_BASE}/api/quran/context?surah=${currentVerse.surah}&ayah=${currentVerse.ayah}`);
       if (res.ok) {
         const data = await res.json();
         setContextData((prev) => ({

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
 
 const KAABA = { lat: 21.4225, lng: 39.8262 };
 
@@ -414,40 +416,53 @@ export function QiblaFinder() {
 
     const timer = setTimeout(() => setLocState("timeout"), 12000);
 
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        clearTimeout(timer);
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setCoords({ lat, lng });
-        setLocState("ok");
+    const resolveLocation = async (lat: number, lng: number) => {
+      clearTimeout(timer);
+      setCoords({ lat, lng });
+      setLocState("ok");
 
-        // Reverse geocode (Nominatim – no key needed)
-        try {
-          const r = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-            { headers: { "User-Agent": "HidayahApp/1.0" } }
-          );
-          const d = await r.json();
-          const city =
-            d.address?.city ||
-            d.address?.town ||
-            d.address?.village ||
-            d.address?.county;
-          const country = d.address?.country;
-          setCityName([city, country].filter(Boolean).join(", ") || null);
-        } catch {
-          /* ignore */
-        }
+      // Reverse geocode (Nominatim – no key needed)
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+          { headers: { "User-Agent": "HidayahApp/1.0" } }
+        );
+        const d = await r.json();
+        const city =
+          d.address?.city ||
+          d.address?.town ||
+          d.address?.village ||
+          d.address?.county;
+        const country = d.address?.country;
+        setCityName([city, country].filter(Boolean).join(", ") || null);
+      } catch {
+        /* ignore */
+      }
 
-        initCompass();
-      },
-      (err) => {
-        clearTimeout(timer);
-        setLocState(err.code === err.PERMISSION_DENIED ? "denied" : "error");
-      },
-      { timeout: 11000, enableHighAccuracy: true }
-    );
+      initCompass();
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      Geolocation.requestPermissions()
+        .then(() =>
+          Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 11000 })
+        )
+        .then((pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude))
+        .catch((err: unknown) => {
+          clearTimeout(timer);
+          const code = (err as { code?: number })?.code;
+          setLocState(code === 1 ? "denied" : "error");
+        });
+    } else {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude),
+        (err) => {
+          clearTimeout(timer);
+          setLocState(err.code === err.PERMISSION_DENIED ? "denied" : "error");
+        },
+        { timeout: 11000, enableHighAccuracy: true }
+      );
+    }
 
     return () => {
       clearTimeout(timer);

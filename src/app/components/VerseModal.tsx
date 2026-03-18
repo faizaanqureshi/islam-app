@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { VerseContext, RelatedAyah, VerseModalProps } from "../types";
+import { API_BASE } from "../../lib/api";
 
 export function VerseModal({ verse, surahs, onNavigate, onClose }: VerseModalProps) {
   const [context, setContext] = useState<VerseContext | null>(null);
@@ -35,7 +36,7 @@ export function VerseModal({ verse, surahs, onNavigate, onClose }: VerseModalPro
         const origins = await originsRes.json();
         setCity(origins[verse.surah] || "");
 
-        const ctxRes = await fetch(`/api/quran/context?surah=${verse.surah}&ayah=${verse.ayah}`);
+        const ctxRes = await fetch(`${API_BASE}/api/quran/context?surah=${verse.surah}&ayah=${verse.ayah}`);
         if (ctxRes.ok) {
           const ctxData = await ctxRes.json();
           if (ctxData.success && ctxData.data) {
@@ -56,7 +57,7 @@ export function VerseModal({ verse, surahs, onNavigate, onClose }: VerseModalPro
       setIsLoadingRelated(true);
       setRelatedAyahs([]);
       try {
-        const res = await fetch(`/api/quran/related?surah=${verse.surah}&ayah=${verse.ayah}`);
+        const res = await fetch(`${API_BASE}/api/quran/related?surah=${verse.surah}&ayah=${verse.ayah}`);
         if (res.ok) {
           const data = await res.json();
           if (data.success) setRelatedAyahs(data.data);

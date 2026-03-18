@@ -2,6 +2,9 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
+import { LocalNotifications } from "@capacitor/local-notifications";
 
 interface PrayerTimes {
   Fajr: string;
@@ -32,6 +35,18 @@ const REGULAR_ADHANS = [
   { id: "Omar Hisham Al Arabi", name: "Omar Hisham Al Arabi" },
 ];
 
+// Bundled native sound files (without extension).
+// iOS uses .caf, Android uses .mp3 — chosen at schedule time.
+const ADHAN_SOUND_FILES: Record<string, string> = {
+  "Mishary Rashid - Fajr": "mishary_rashid_fajr_adhan",
+  "Ali Ahmed Mullah - Fajr": "ali_ahmed_mullah_fajr_adhan",
+  "Mansour Zahrani - Fajr": "mansour_zahrani_fajr_adhan",
+  "Ali Ahmed Mullah": "ali_ahmed_mullah_adhan",
+  "Mohamed Tarek": "mohamed_tarek_adhan",
+  "Muhammad Marwan Qassas": "muhammad_marwan_qassas_adhan",
+  "Omar Hisham Al Arabi": "omar_hisham_al_arabi_adhan",
+};
+
 function getAdhanList(prayerName: string) {
   return prayerName === "Fajr" ? FAJR_ADHANS : REGULAR_ADHANS;
 }
@@ -58,7 +73,12 @@ export function PrayerTimesWidget() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const scheduledIds = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const isIOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  // Hide notification settings on iOS *browser* (Web Notifications don't work there).
+  // On native iOS via Capacitor we do support notifications, so exclude that case.
+  const isIOS =
+    typeof navigator !== "undefined" &&
+    /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+    !Capacitor.isNativePlatform();
 
   useEffect(() => {
     setMounted(true);
@@ -215,25 +235,42 @@ export function PrayerTimesWidget() {
     if (storedLocation) {
       const { latitude, longitude } = JSON.parse(storedLocation);
       fetchPrayerTimes(latitude, longitude);
-    } else {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const { latitude, longitude } = position.coords;
-            localStorage.setItem("prayerLocation", JSON.stringify({ latitude, longitude }));
-            fetchPrayerTimes(latitude, longitude);
-          },
-          (err) => {
-            console.error("Geolocation error:", err);
-            setError(true);
-            setIsLoading(false);
-          }
-        );
-      } else {
+      return;
+    }
+
+    const getLocation = async () => {
+      try {
+        if (Capacitor.isNativePlatform()) {
+          await Geolocation.requestPermissions();
+          const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+          const { latitude, longitude } = position.coords;
+          localStorage.setItem("prayerLocation", JSON.stringify({ latitude, longitude }));
+          fetchPrayerTimes(latitude, longitude);
+        } else if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              localStorage.setItem("prayerLocation", JSON.stringify({ latitude, longitude }));
+              fetchPrayerTimes(latitude, longitude);
+            },
+            (err) => {
+              console.error("Geolocation error:", err);
+              setError(true);
+              setIsLoading(false);
+            }
+          );
+        } else {
+          setError(true);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        console.error("Geolocation error:", err);
         setError(true);
         setIsLoading(false);
       }
-    }
+    };
+
+    getLocation();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -249,7 +286,18 @@ export function PrayerTimesWidget() {
   }, [prayerData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (typeof Notification !== "undefined") setNotifPermission(Notification.permission);
+    const checkPermission = async () => {
+      if (Capacitor.isNativePlatform()) {
+        const result = await LocalNotifications.checkPermissions();
+        setNotifPermission(
+          result.display === "granted" ? "granted" : result.display === "denied" ? "denied" : "default"
+        );
+      } else if (typeof Notification !== "undefined") {
+        setNotifPermission(Notification.permission);
+      }
+    };
+    checkPermission();
+
     const saved = localStorage.getItem("prayerNotificationSettings");
     if (saved) {
       try { setNotifSettings(JSON.parse(saved)); } catch { /* ignore */ }
@@ -260,52 +308,101 @@ export function PrayerTimesWidget() {
     if (!prayerData) return;
     const saved = localStorage.getItem("prayerNotificationSettings");
     if (!saved) return;
-    try { scheduleAllNotifications(JSON.parse(saved), prayerData.allPrayers); } catch { /* ignore */ }
+    try { void scheduleAllNotifications(JSON.parse(saved), prayerData.allPrayers); } catch { /* ignore */ }
   }, [prayerData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isExpanded) setIsSettingsMode(false);
   }, [isExpanded]);
 
-  function scheduleAllNotifications(
+  async function scheduleAllNotifications(
     settings: NotifSettings,
     prayers: Array<{ name: string; time: string }>
   ) {
-    scheduledIds.current.forEach((id) => clearTimeout(id));
-    scheduledIds.current = [];
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-
     const ARABIC: Record<string, string> = {
       Fajr: "الفجر", Dhuhr: "الظهر", Asr: "العصر", Maghrib: "المغرب", Isha: "العشاء",
     };
 
-    prayers.forEach((prayer) => {
-      const setting = settings[prayer.name];
-      if (!setting?.enabled) return;
-      const { hours, minutes } = parseTimeString(prayer.time);
-      for (let day = 0; day < 7; day++) {
-        const target = new Date();
-        target.setDate(target.getDate() + day);
-        target.setHours(hours, minutes, 0, 0);
-        const delay = target.getTime() - Date.now();
-        if (delay <= 0) continue;
-        const id = setTimeout(() => {
-          if (Notification.permission !== "granted") return;
-          const title = `${prayer.name} · ${ARABIC[prayer.name] ?? ""}`;
-          if (setting.type === "adhan") {
-            const audio = new Audio(`/adhan/${setting.adhan}.mp3`);
-            audio.play().catch(() => {});
-            new Notification(title, { body: setting.adhan });
-          } else {
-            new Notification(title, { body: "Time to pray" });
-          }
-        }, delay);
-        scheduledIds.current.push(id);
+    if (Capacitor.isNativePlatform()) {
+      // Cancel all previously scheduled native notifications
+      const pending = await LocalNotifications.getPending();
+      if (pending.notifications.length > 0) {
+        await LocalNotifications.cancel({ notifications: pending.notifications });
       }
-    });
+
+      const notifications: Parameters<typeof LocalNotifications.schedule>[0]["notifications"] = [];
+      const platform = Capacitor.getPlatform();
+
+      prayers.forEach((prayer, prayerIdx) => {
+        const setting = settings[prayer.name];
+        if (!setting?.enabled) return;
+        const { hours, minutes } = parseTimeString(prayer.time);
+
+        for (let day = 0; day < 7; day++) {
+          const target = new Date();
+          target.setDate(target.getDate() + day);
+          target.setHours(hours, minutes, 0, 0);
+          if (target.getTime() <= Date.now()) continue;
+
+          const soundBase = setting.type === "adhan" ? ADHAN_SOUND_FILES[setting.adhan] : undefined;
+          // iOS expects filename with .caf extension; Android expects name without extension
+          const sound = soundBase
+            ? platform === "ios" ? `${soundBase}.caf` : soundBase
+            : undefined;
+
+          notifications.push({
+            id: prayerIdx * 7 + day + 1,
+            title: `${prayer.name} · ${ARABIC[prayer.name] ?? ""}`,
+            body: setting.type === "adhan" ? setting.adhan : "Time to pray",
+            schedule: { at: target },
+            ...(sound ? { sound } : {}),
+          });
+        }
+      });
+
+      if (notifications.length > 0) {
+        await LocalNotifications.schedule({ notifications });
+      }
+    } else {
+      // Browser Notification API fallback
+      scheduledIds.current.forEach((id) => clearTimeout(id));
+      scheduledIds.current = [];
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+
+      prayers.forEach((prayer) => {
+        const setting = settings[prayer.name];
+        if (!setting?.enabled) return;
+        const { hours, minutes } = parseTimeString(prayer.time);
+        for (let day = 0; day < 7; day++) {
+          const target = new Date();
+          target.setDate(target.getDate() + day);
+          target.setHours(hours, minutes, 0, 0);
+          const delay = target.getTime() - Date.now();
+          if (delay <= 0) continue;
+          const id = setTimeout(() => {
+            if (Notification.permission !== "granted") return;
+            const title = `${prayer.name} · ${ARABIC[prayer.name] ?? ""}`;
+            if (setting.type === "adhan") {
+              const audio = new Audio(`/adhan/${setting.adhan}.mp3`);
+              audio.play().catch(() => {});
+              new Notification(title, { body: setting.adhan });
+            } else {
+              new Notification(title, { body: "Time to pray" });
+            }
+          }, delay);
+          scheduledIds.current.push(id);
+        }
+      });
+    }
   }
 
   async function requestNotifPermission(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      const result = await LocalNotifications.requestPermissions();
+      const granted = result.display === "granted";
+      setNotifPermission(granted ? "granted" : "denied");
+      return granted;
+    }
     if (typeof Notification === "undefined") return false;
     if (Notification.permission === "granted") return true;
     if (Notification.permission === "denied") { setNotifPermission("denied"); return false; }
@@ -335,7 +432,7 @@ export function PrayerTimesWidget() {
 
   function handleSave() {
     localStorage.setItem("prayerNotificationSettings", JSON.stringify(notifSettings));
-    if (prayerData) scheduleAllNotifications(notifSettings, prayerData.allPrayers);
+    if (prayerData) void scheduleAllNotifications(notifSettings, prayerData.allPrayers);
     setIsSettingsMode(false);
   }
 

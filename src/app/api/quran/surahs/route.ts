@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+
 // Surah metadata (name, transliteration, verse count)
 const SURAH_METADATA = [
   { number: 1, name: "Al-Fatihah", transliteration: "The Opening", verses: 7 },

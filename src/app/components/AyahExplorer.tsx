@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import type { Surah, Verse } from "../types";
 import { VerseModal } from "./VerseModal";
+import { API_BASE } from "../../lib/api";
 
 export function AyahExplorer() {
   const [surahs, setSurahs] = useState<Surah[]>([]);
@@ -76,7 +77,7 @@ export function AyahExplorer() {
   useEffect(() => {
     async function fetchSurahs() {
       try {
-        const response = await fetch("/api/quran/surahs");
+        const response = await fetch(`${API_BASE}/api/quran/surahs`);
         const data = await response.json();
         if (data.success) setSurahs(data.data);
       } catch (error) {
@@ -92,7 +93,7 @@ export function AyahExplorer() {
     async function fetchVerses() {
       setIsLoadingVerses(true);
       try {
-        const response = await fetch(`/api/quran/surah/${selectedSurah}`);
+        const response = await fetch(`${API_BASE}/api/quran/surah/${selectedSurah}`);
         const data = await response.json();
         if (data.success) setVerses(data.data.verses);
       } catch (error) {
@@ -151,7 +152,7 @@ export function AyahExplorer() {
     setPageMap({});
     setCurrentSafePage(0);
     setIsLoadingPageMap(true);
-    fetch(`/api/quran/page-info/${selectedSurah}`)
+    fetch(`${API_BASE}/api/quran/page-info/${selectedSurah}`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;

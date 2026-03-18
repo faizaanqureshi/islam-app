@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { searchSimilarVerses, fetchArabicVerses } from "@/lib/retrieval";
 
+
 export interface RelatedAyah {
   surah: number;
   ayah: number;

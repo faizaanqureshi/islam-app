@@ -6,6 +6,7 @@ import { QiblaFinder } from "./qibla";
 import { MessageBubble } from "./components/MessageBubble";
 import { PrayerTimesWidget } from "./components/PrayerTimesWidget";
 import { AyahExplorer } from "./components/AyahExplorer";
+import { API_BASE } from "../lib/api";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"questions" | "explorer" | "qibla">("questions");
@@ -49,7 +50,7 @@ export default function Home() {
         .slice(-20)
         .map((msg) => ({ role: msg.role, content: msg.content }));
 
-      const response = await fetch("/api/chat", {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
         body: JSON.stringify({ message: trimmedQuery, history }),
