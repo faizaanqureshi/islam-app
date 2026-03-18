@@ -1661,6 +1661,15 @@ interface VerseContext {
   scholarly_notes: string | null;
 }
 
+interface RelatedAyah {
+  surah: number;
+  ayah: number;
+  arabic: string;
+  english: string;
+  similarity: number;
+  theme: string | null;
+}
+
 interface VerseModalProps {
   verse: {
     surah: number;
@@ -1668,6 +1677,8 @@ interface VerseModalProps {
     arabic: string;
     english: string;
   };
+  surahs: Surah[];
+  onNavigate: (surah: number, ayah: number, arabic: string, english: string) => void;
   onClose: () => void;
 }
 
@@ -2261,8 +2272,8 @@ function AyahExplorer() {
                 {/* Outer page nav — above the book */}
                 <div className="flex items-center justify-between mb-5">
                   <button
-                    onClick={() => prevSafePage && setCurrentSafePage(prevSafePage)}
-                    disabled={!prevSafePage}
+                    onClick={() => nextSafePage && setCurrentSafePage(nextSafePage)}
+                    disabled={!nextSafePage}
                     className="flex items-center gap-1.5 text-[12px] text-muted-foreground transition-opacity hover:opacity-70 disabled:opacity-20 disabled:cursor-not-allowed"
                   >
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2274,8 +2285,8 @@ function AyahExplorer() {
                     {safePageIndex + 1} / {safhePages.length} pages
                   </p>
                   <button
-                    onClick={() => nextSafePage && setCurrentSafePage(nextSafePage)}
-                    disabled={!nextSafePage}
+                    onClick={() => prevSafePage && setCurrentSafePage(prevSafePage)}
+                    disabled={!prevSafePage}
                     className="flex items-center gap-1.5 text-[12px] text-muted-foreground transition-opacity hover:opacity-70 disabled:opacity-20 disabled:cursor-not-allowed"
                   >
                     <span className="hidden sm:inline">Prev</span>
@@ -2462,9 +2473,17 @@ function AyahExplorer() {
       {selectedVerse && (
         <VerseModal
           verse={selectedVerse}
+          surahs={surahs}
+          onNavigate={(s, a, ar, en) => {
+            setSelectedVerse({ surah: s, ayah: a, arabic: ar, english: en });
+            if (s !== selectedSurah) setSelectedSurah(s);
+            const url = new URL(window.location.href);
+            url.searchParams.set('surah', String(s));
+            url.searchParams.set('ayah', String(a));
+            window.history.replaceState({}, '', url.toString());
+          }}
           onClose={() => {
             setSelectedVerse(null);
-            // Clear URL parameters when closing modal
             const url = new URL(window.location.href);
             url.searchParams.delete('surah');
             url.searchParams.delete('ayah');
@@ -2477,12 +2496,15 @@ function AyahExplorer() {
 }
 
 // Verse Detail Modal Component
-function VerseModal({ verse, onClose }: VerseModalProps) {
+function VerseModal({ verse, surahs, onNavigate, onClose }: VerseModalProps) {
   const [context, setContext] = useState<VerseContext | null>(null);
   const [city, setCity] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [relatedAyahs, setRelatedAyahs] = useState<RelatedAyah[]>([]);
+  const [navStack, setNavStack] = useState<{ surah: number; ayah: number; arabic: string; english: string }[]>([]);
+  const [isLoadingRelated, setIsLoadingRelated] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -2526,6 +2548,25 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
     fetchVerseDetails();
   }, [verse.surah, verse.ayah]);
 
+  useEffect(() => {
+    async function fetchRelated() {
+      setIsLoadingRelated(true);
+      setRelatedAyahs([]);
+      try {
+        const res = await fetch(`/api/quran/related?surah=${verse.surah}&ayah=${verse.ayah}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) setRelatedAyahs(data.data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch related verses:", error);
+      } finally {
+        setIsLoadingRelated(false);
+      }
+    }
+    fetchRelated();
+  }, [verse.surah, verse.ayah]);
+
   // Prevent body scroll when modal is open
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -2533,6 +2574,17 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
       document.body.style.overflow = 'unset';
     };
   }, []);
+
+  const handleRelatedClick = (r: RelatedAyah) => {
+    setNavStack(prev => [...prev, { surah: verse.surah, ayah: verse.ayah, arabic: verse.arabic, english: verse.english }]);
+    onNavigate(r.surah, r.ayah, r.arabic, r.english);
+  };
+
+  const handleBreadcrumbClick = (index: number) => {
+    const target = navStack[index];
+    setNavStack(prev => prev.slice(0, index));
+    onNavigate(target.surah, target.ayah, target.arabic, target.english);
+  };
 
   if (!mounted) return null;
 
@@ -2548,7 +2600,7 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
       }}
     >
       <div
-        className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-background border border-border/50 rounded-2xl shadow-2xl"
+        className="relative w-full max-w-2xl lg:max-w-4xl max-h-[85vh] overflow-y-auto bg-background border border-border/50 rounded-2xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header buttons */}
@@ -2608,6 +2660,29 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
         </div>
 
         <div className="p-8">
+          {/* Breadcrumb navigation */}
+          {navStack.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap mb-5 -mt-1">
+              {navStack.map((v, i) => {
+                const name = surahs.find((s) => s.number === v.surah)?.name ?? `Surah ${v.surah}`;
+                return (
+                  <span key={`${v.surah}:${v.ayah}-${i}`} className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleBreadcrumbClick(i)}
+                      className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors underline-offset-2 hover:underline"
+                    >
+                      {name} {v.surah}:{v.ayah}
+                    </button>
+                    <span className="text-muted-foreground/25 text-xs select-none">›</span>
+                  </span>
+                );
+              })}
+              <span className="text-[11px] text-muted-foreground/80">
+                {surahs.find((s) => s.number === verse.surah)?.name ?? `Surah ${verse.surah}`} {verse.surah}:{verse.ayah}
+              </span>
+            </div>
+          )}
+
           {/* Header */}
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-3 flex-wrap">
@@ -2712,6 +2787,75 @@ function VerseModal({ verse, onClose }: VerseModalProps) {
               <p className="text-sm text-muted-foreground/60">
                 No contextual information available for this verse.
               </p>
+            </div>
+          )}
+
+          {/* Related Verses */}
+          {(isLoadingRelated || relatedAyahs.length > 0) && (
+            <div className="mt-6">
+              <div className="h-[1px] bg-border/30 mb-6" />
+              <h3 className="font-display text-base font-medium text-foreground mb-4 tracking-wide">
+                Related Verses
+              </h3>
+
+              {isLoadingRelated ? (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="flex-none w-[260px] h-[140px] rounded-xl bg-foreground/[0.04] animate-pulse snap-start"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-2 sm:overflow-visible sm:pb-0">
+                  {relatedAyahs.map((r) => {
+                    const surahLabel = surahs.find((s) => s.number === r.surah)?.name ?? `Surah ${r.surah}`;
+                    return (
+                      <button
+                        key={`${r.surah}:${r.ayah}`}
+                        onClick={() => handleRelatedClick(r)}
+                        className="flex-none w-[260px] sm:w-auto text-left rounded-xl border border-border/50 bg-foreground/[0.02] hover:bg-foreground/[0.05] hover:border-border/80 transition-all duration-150 p-4 snap-start"
+                      >
+                        {/* Reference */}
+                        <div className="mb-1.5">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {surahLabel} {r.surah}:{r.ayah}
+                          </span>
+                        </div>
+                        {/* Theme badge */}
+                        {r.theme && (
+                          <div className="mb-4">
+                            <span
+                              className="inline-block text-[10px] px-2 py-0.5 rounded leading-tight"
+                              style={{
+                                background: 'var(--gold-muted)',
+                                border: '1px solid var(--gold-border)',
+                                color: 'var(--gold)',
+                              }}
+                            >
+                              {r.theme}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Arabic snippet */}
+                        <p
+                          className="font-arabic text-sm text-right text-foreground/80 leading-loose line-clamp-2 mb-2"
+                          dir="rtl"
+                        >
+                          {r.arabic}
+                        </p>
+
+                        {/* English translation */}
+                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                          {r.english}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
