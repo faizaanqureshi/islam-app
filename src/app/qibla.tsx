@@ -134,7 +134,7 @@ function CompassSVG({
   const midY = cy + 4; // widest point
 
   return (
-    <svg viewBox="0 0 300 300" style={{ width: "100%", maxWidth: 300, display: "block" }}>
+    <svg viewBox="0 0 300 300" style={{ width: "100%", maxWidth: 300, display: "block", margin: "0 auto" }}>
       <defs>
         <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
@@ -715,11 +715,7 @@ export function QiblaFinder() {
               is the Qibla bearing from North — use a physical compass or maps
               app to orient yourself.
             </p>
-          ) : (
-            <p className="text-xs text-muted-foreground text-center">
-              Waiting for compass data…
-            </p>
-          )}
+          ) : null}
         </div>
 
         {/* Footnote */}

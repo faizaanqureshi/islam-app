@@ -250,46 +250,56 @@ export default function Home() {
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4">
           <div className="flex items-center justify-between h-14 relative">
-            <div className="flex items-center gap-8">
-              <button
-                onClick={() => setActiveTab("questions")}
-                className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
-                  activeTab === "questions"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground/70"
-                }`}
-              >
-                Ask Questions
-                {activeTab === "questions" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab("explorer")}
-                className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
-                  activeTab === "explorer"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground/70"
-                }`}
-              >
-                Ayah Explorer
-                {activeTab === "explorer" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab("qibla")}
-                className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
-                  activeTab === "qibla"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground/70"
-                }`}
-              >
-                Qibla
-                {activeTab === "qibla" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
-                )}
-              </button>
+            <div className="flex items-center gap-6 sm:gap-8">
+              {(
+                [
+                  {
+                    id: "questions",
+                    label: "Ask Questions",
+                    icon: (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    id: "explorer",
+                    label: "Ayah Explorer",
+                    icon: (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    id: "qibla",
+                    label: "Qibla",
+                    icon: (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                      </svg>
+                    ),
+                  },
+                ] as { id: "questions" | "explorer" | "qibla"; label: string; icon: React.ReactNode }[]
+              ).map(({ id, label, icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
+                    activeTab === id
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground/70"
+                  }`}
+                >
+                  <span className="sm:hidden">{icon}</span>
+                  <span className="hidden sm:inline">{label}</span>
+                  {activeTab === id && (
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
+                  )}
+                </button>
+              ))}
             </div>
             <PrayerTimesWidget />
           </div>
