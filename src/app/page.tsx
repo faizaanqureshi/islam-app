@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { QiblaFinder } from "./qibla";
 
 // Types for the chat
 interface Citation {
@@ -38,7 +39,7 @@ interface PrayerTimes {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"questions" | "explorer">("questions");
+  const [activeTab, setActiveTab] = useState<"questions" | "explorer" | "qibla">("questions");
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -276,6 +277,19 @@ export default function Home() {
                   <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
                 )}
               </button>
+              <button
+                onClick={() => setActiveTab("qibla")}
+                className={`relative px-1 py-2 text-[13px] font-medium transition-all duration-300 ${
+                  activeTab === "qibla"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground/70"
+                }`}
+              >
+                Qibla
+                {activeTab === "qibla" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: 'var(--gold)' }} />
+                )}
+              </button>
             </div>
             <PrayerTimesWidget />
           </div>
@@ -323,12 +337,17 @@ export default function Home() {
       {/* Main content area */}
       <main
         className={`flex-1 ${
-          isLandingMode && activeTab === "questions"
+          activeTab === "qibla"
+            ? "flex flex-col"
+            : isLandingMode && activeTab === "questions"
             ? "flex items-center justify-center"
             : "pb-32"
         }`}
       >
-        {activeTab === "explorer" ? (
+        {activeTab === "qibla" ? (
+          // Qibla Finder view
+          <QiblaFinder />
+        ) : activeTab === "explorer" ? (
           // Ayah Explorer view
           <AyahExplorer />
         ) : isLandingMode ? (
