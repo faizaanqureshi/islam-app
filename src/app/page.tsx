@@ -2522,6 +2522,7 @@ function VerseModal({ verse, surahs, onNavigate, onClose }: VerseModalProps) {
   useEffect(() => {
     async function fetchVerseDetails() {
       setIsLoading(true);
+      setContext(null);
       try {
         // Fetch surah origins
         const originsRes = await fetch("/surah-origins.json");
