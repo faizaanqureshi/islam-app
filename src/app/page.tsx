@@ -1824,6 +1824,7 @@ function AyahExplorer() {
     const el = safhPageRef.current;
     if (!el) return;
     const onMove = (e: TouchEvent) => {
+      if (e.touches.length > 1) return; // ignore pinch/zoom
       if (touchStartXRef.current === null || touchStartYRef.current === null) return;
       const dx = Math.abs(e.touches[0].clientX - touchStartXRef.current);
       const dy = Math.abs(e.touches[0].clientY - touchStartYRef.current);
@@ -2288,11 +2289,13 @@ function AyahExplorer() {
                 <div
                   ref={safhPageRef}
                   onTouchStart={(e) => {
+                    if (e.touches.length > 1) return; // ignore pinch/zoom
                     touchStartXRef.current = e.touches[0].clientX;
                     touchStartYRef.current = e.touches[0].clientY;
                   }}
                   onTouchEnd={(e) => {
                     if (touchStartXRef.current === null) return;
+                    if (e.touches.length > 0) return; // still a multi-touch gesture in progress
                     const delta = e.changedTouches[0].clientX - touchStartXRef.current;
                     touchStartXRef.current = null;
                     touchStartYRef.current = null;
