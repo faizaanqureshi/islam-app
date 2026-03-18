@@ -1706,6 +1706,8 @@ function AyahExplorer() {
   const [playingAyah, setPlayingAyah] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [reciter, setReciter] = useState('Alafasy_128kbps');
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const playbackRateRef = useRef(1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const versesRef = useRef<Verse[]>([]);
   const reciterRef = useRef('Alafasy_128kbps');
@@ -1820,6 +1822,11 @@ function AyahExplorer() {
   useEffect(() => { versesRef.current = verses; }, [verses]);
   useEffect(() => { pageMapRef.current = pageMap; }, [pageMap]);
   useEffect(() => { currentSafePageRef.current = currentSafePage; }, [currentSafePage]);
+  useEffect(() => {
+    playbackRateRef.current = playbackRate;
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+    if (nextAudioRef.current) nextAudioRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
   useEffect(() => { reciterRef.current = reciter; }, [reciter]);
   useEffect(() => { selectedSurahRef.current = selectedSurah; }, [selectedSurah]);
 
@@ -1938,6 +1945,7 @@ function AyahExplorer() {
     const a = String(ayahNumber).padStart(3, '0');
     const url = `https://everyayah.com/data/${reciterRef.current}/${s}${a}.mp3`;
     const audio = prefetched ?? new Audio(url);
+    audio.playbackRate = playbackRateRef.current;
     audioRef.current = audio;
 
     // Immediately start buffering the next verse so onended fires with it ready
@@ -1949,6 +1957,7 @@ function AyahExplorer() {
         const na = String(vList[idx + 1].ayah).padStart(3, '0');
         const next = new Audio(`https://everyayah.com/data/${reciterRef.current}/${ns}${na}.mp3`);
         next.preload = 'auto';
+        next.playbackRate = playbackRateRef.current;
         nextAudioRef.current = next;
       } else {
         nextAudioRef.current = null;
@@ -2146,6 +2155,22 @@ function AyahExplorer() {
                   </button>
                 ))}
               </div>
+
+              {/* Playback speed */}
+              <button
+                onClick={() => {
+                  const speeds = [0.75, 1, 1.25, 1.5];
+                  const next = speeds[(speeds.indexOf(playbackRate) + 1) % speeds.length];
+                  setPlaybackRate(next);
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-border/60 text-[12px] transition-colors"
+                style={playbackRate !== 1
+                  ? { background: 'var(--gold-muted)', color: 'var(--gold)', borderColor: 'var(--gold-border)' }
+                  : { color: 'var(--muted-foreground)' }}
+                title="Playback speed"
+              >
+                {playbackRate}×
+              </button>
 
               {/* Stop button — only when something is loaded */}
               {playingAyah !== null && (
