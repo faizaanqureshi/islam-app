@@ -372,7 +372,7 @@ export default function Home() {
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="What does the Quran say about..."
                     rows={1}
-                    className="w-full min-h-[56px] max-h-[200px] resize-none rounded-2xl border border-border/80 bg-background px-5 py-4 pr-14 text-base text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none"
+                    className="w-full min-h-[56px] max-h-[200px] resize-none overflow-hidden rounded-2xl border border-border/80 bg-background px-5 py-4 pr-14 text-base text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 hover:border-border focus:border-foreground/20 focus:ring-0 focus:outline-none"
                     onInput={(e) => {
                       const target = e.target as HTMLTextAreaElement;
                       target.style.height = "auto";
@@ -385,7 +385,7 @@ export default function Home() {
                       }
                     }}
                   />
-                  <div className="absolute right-3 inset-y-0 flex items-center">
+                  <div className="absolute right-3 inset-y-0 flex items-center mb-1">
                     <button
                       type="button"
                       disabled={!query.trim() || isLoading}
